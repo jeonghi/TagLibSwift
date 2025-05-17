@@ -36,4 +36,8 @@ install/
 .AppleDouble
 .LSOverride
 
+### Test Resources ###
+Tests/TagLibSwiftTests/Resources/*.mp3
+!Tests/TagLibSwiftTests/Resources/create_test_mp3.sh
+
 # End of https://www.toptal.com/developers/gitignore/api/swiftpm,xcode

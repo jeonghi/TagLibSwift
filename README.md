@@ -50,6 +50,17 @@ The project uses [ios-cmake](https://github.com/leetal/ios-cmake) for iOS builds
 - Build type: Release
 - Installation directory: `install/ios` and `install/macos`
 
+## Running Tests
+
+Before running tests, you need to generate test audio files:
+
+```bash
+cd Tests/TagLibSwiftTests/Resources
+./create_test_mp3.sh
+```
+
+This will create the necessary test MP3 files for running the test suite.
+
 ## License
 
 TagLibSwift is released under the [MIT License](LICENSE). TagLib is licensed under [LGPL v2.1](https://github.com/taglib/taglib/blob/master/COPYING.LGPL).
