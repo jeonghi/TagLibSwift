@@ -1,0 +1,7 @@
+[submodule "ios-cmake"]
+	path = ios-cmake
+	url = https://github.com/leetal/ios-cmake.git
+[submodule "taglib"]
+	path = taglib
+	url = https://github.com/taglib/taglib.git
+	branch = v2.0.2

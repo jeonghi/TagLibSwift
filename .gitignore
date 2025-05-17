@@ -26,4 +26,14 @@ xcuserdata/
 /*.gcno
 **/xcshareddata/WorkspaceSettings.xcsettings
 
+### Build Directories ###
+build-ios/
+build-macos/
+install/
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+
 # End of https://www.toptal.com/developers/gitignore/api/swiftpm,xcode
