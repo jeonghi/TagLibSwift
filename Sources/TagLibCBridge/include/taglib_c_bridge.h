@@ -7,10 +7,15 @@ extern "C" {
 
 typedef struct TagLib_File TagLib_File;
 
+// Error handling
+const char* taglib_get_last_error(void);
+void taglib_clear_error(void);
+
 // File operations
 TagLib_File* taglib_file_new(const char* path);
 void taglib_file_free(TagLib_File* file);
 int taglib_file_save(TagLib_File* file);
+int taglib_file_is_valid(TagLib_File* file);
 
 // Tag operations
 const char* taglib_file_get_title(TagLib_File* file);

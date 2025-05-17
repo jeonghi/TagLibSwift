@@ -29,16 +29,14 @@ let package = Package(
                 .unsafeFlags(["-std=c++17"])
             ],
             linkerSettings: [
-                .linkedLibrary("c++")
+                .linkedLibrary("c++"),
+                .linkedLibrary("z")
             ]
         ),
         .target(
             name: "TagLibSwift",
             dependencies: ["TagLibCBridge", "TagLib"],
-            path: "Sources/TagLibSwift",
-            swiftSettings: [
-                .unsafeFlags(["-import-objc-header", "Sources/TagLibSwift/TagLib-Bridging-Header.h"])
-            ]
+            path: "Sources/TagLibSwift"
         ),
         .testTarget(
             name: "TagLibSwiftTests",
