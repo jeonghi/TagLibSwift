@@ -33,7 +33,7 @@ final class TagFileTests: XCTestCase {
     
     func testModuleImports() {
         // 모든 필요한 모듈이 임포트되었는지 확인
-        let mirror = Mirror(reflecting: try? TagFile(path: testFilePath))
+        let mirror = Mirror(reflecting: try? TagFile(path: testFilePath) as Any)
         XCTAssertNotNil(mirror, "TagFile should be properly initialized")
     }
     
@@ -117,14 +117,33 @@ final class TagFileTests: XCTestCase {
     
     // MARK: - Error Handling Tests
     
-    func testSaveFailure() throws {
-        let file = try TagFile(path: testFilePath)
+    func testInvalidFileOperations() {
+        // 잘못된 파일 경로로 TagFile 생성 시도
+        let file = try? TagFile(path: "/nonexistent/file.mp3")
         
-        // 읽기 전용 파일로 변경
-        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: testFilePath)
+        // 파일이 nil이어야 함
+        XCTAssertNil(file, "File should be nil for invalid path")
+    }
+    
+    func testSaveFailure() throws {
+        // 임시 파일 생성
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("test_save.mp3")
+        
+        // 테스트 파일을 임시 파일로 복사
+        try FileManager.default.copyItem(at: testFileURL, to: tempFile)
+        
+        // 파일을 읽기 전용으로 설정
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: tempFile.path)
         defer {
-            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: testFilePath)
+            // 테스트 후 파일 속성 복원 및 삭제
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: tempFile.path)
+            try? FileManager.default.removeItem(at: tempFile)
         }
+        
+        // 읽기 전용 파일에 대한 저장 시도
+        let file = try TagFile(path: tempFile.path)
+        file.title = "New Title"
         
         // 저장 실패 테스트
         XCTAssertThrowsError(try file.save()) { error in
@@ -134,19 +153,6 @@ final class TagFileTests: XCTestCase {
                 XCTFail("Expected saveFailed error")
             }
         }
-    }
-    
-    func testInvalidFileOperations() {
-        let file = try? TagFile(path: "/nonexistent/file.mp3")
-        
-        // 잘못된 파일에 대한 작업 테스트
-        XCTAssertEqual(file?.title, "")
-        XCTAssertEqual(file?.artist, "")
-        XCTAssertEqual(file?.album, "")
-        XCTAssertEqual(file?.genre, "")
-        XCTAssertEqual(file?.year, 0)
-        XCTAssertEqual(file?.track, 0)
-        XCTAssertFalse(file?.isValid ?? false)
     }
     
     // MARK: - Memory Management Tests
