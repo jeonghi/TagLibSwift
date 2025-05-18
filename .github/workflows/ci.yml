@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Create test MP3
+        run: |
+          cd Tests/TagLibSwiftTests/Resources
+          chmod +x create_test_mp3.sh
+          ./create_test_mp3.sh
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode.app
+
+      - name: Build
+        run: swift build -v
+
+      - name: Run tests
+        run: swift test -v
