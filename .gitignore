@@ -36,6 +36,14 @@ install/
 .AppleDouble
 .LSOverride
 
+### Example app ###
+# The demo app ships a committed, standalone-openable generated Xcode project.
+!Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj
+!Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/**
+# ...but never the per-user or tuist-regenerated bits.
+Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/xcuserdata/
+Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcworkspace/
+
 ### Test Resources ###
 Tests/TagLibSwiftTests/Resources/*.mp3
 !Tests/TagLibSwiftTests/Resources/create_test_mp3.sh

@@ -117,6 +117,12 @@ When the typed API doesn't cover a format-specific need (e.g. individual ID3v2 f
 let ref = file.fileRef   // TagLib.FileRef — use TagLib's C++ API directly
 ```
 
+## Example app
+
+A multiplatform (iOS + macOS) SwiftUI demo lives in [`Examples/TagLibSwiftDemo/`](Examples/TagLibSwiftDemo/). Open `Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj` in Xcode and run — it exercises the full API: opening an `AudioFile`, editing `tag.*`, reading `audioProperties`, editing the `PropertyMap` (showing rejected keys on save), viewing/setting cover art (`pictures` / `setPictures`), and `save()`. It ships a tiny tagged sample MP3 that it copies to a writable temp location before opening (the bundle is read-only), plus a `.fileImporter` to open other files.
+
+The demo target enables C++ interop via the build setting **`SWIFT_OBJC_INTEROP_MODE = objcxx`** — required for `import TagLibSwift` to compile. The project is generated from `Project.swift` with [tuist](https://tuist.dev) (`tuist generate`), but the committed `.xcodeproj` is standalone and opens/builds without tuist.
+
 ## Supported formats
 
 MP3 (ID3v1/ID3v2), FLAC, Ogg (Vorbis/Opus/Speex/FLAC), MP4/M4A, WAV, AIFF, APE, WavPack, Musepack, TrueAudio, ASF/WMA, Matroska, DSF/DSDIFF, and tracker formats (MOD/IT/S3M/XM) — everything TagLib 2.3.1 supports.
