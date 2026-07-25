@@ -108,6 +108,17 @@ let package = Package(
                 .process("Resources")
             ]
         ),
+        .testTarget(
+            name: "TagLibSwiftCxxTests",
+            dependencies: ["TagLibSwiftCxx"],
+            path: "Tests/TagLibSwiftCxxTests",
+            resources: [
+                .process("Resources")
+            ],
+            swiftSettings: [
+                .interoperabilityMode(.Cxx)
+            ]
+        ),
     ],
     cxxLanguageStandard: .cxx17
 )
