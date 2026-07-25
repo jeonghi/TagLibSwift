@@ -68,7 +68,7 @@ new release.
 
 6. **Regenerate the flat public headers**
 
-   Dependent targets (`CTagLibBridge`, `TagLibSwiftCxx`) do NOT see
+   The dependent target (`TagLibSwift`) does NOT see
    CTagLibCore's internal header search paths — SwiftPM only exposes a target's
    `publicHeadersPath`. So every public TagLib header is flattened into
    `Sources/CTagLibCore/include/taglib/` (mirroring `make install`) by a script.
@@ -82,17 +82,15 @@ new release.
    represent one). If TagLib ever ships two same-named headers, the flat-header
    strategy and `Sources/CTagLibCore/include/module.modulemap` need revisiting.
    Also review `Sources/CTagLibCore/include/taglib_interop.h` if any C++ type it
-   references (FileRef, Tag, AudioProperties, MPEG::File, ID3v2::Tag) changed.
+   references (FileRef, Tag, AudioProperties, PropertyMap, VariantMap) changed.
 
-7. **Leave the bridge alone (usually)**
+7. **Review the interop helpers (usually no change)**
 
-   `Sources/CTagLibBridge/taglib_c_bridge.cpp` and its public header
-   `Sources/CTagLibBridge/include/taglib_c_bridge.h` are TagLibSwift's own thin C
-   wrapper, not vendored code — they don't need updating for a version bump
-   unless the new TagLib release changed a C++ API the bridge calls. If it
-   did, update the bridge accordingly and keep its public surface (`extern
-   "C"`, `TagFile`/`TagLibError`) unchanged so the Swift-facing API stays
-   backward compatible.
+   `Sources/CTagLibCore/include/taglib_interop.h` holds the small inline C++
+   helpers the Swift `TagLibSwift` target calls over Swift/C++ interop. They
+   don't need updating for a version bump unless the new TagLib release changed
+   a C++ API they call. If it did, update the helper and keep its signature
+   stable so the Swift-facing API stays backward compatible.
 
 8. **Build and test**
 

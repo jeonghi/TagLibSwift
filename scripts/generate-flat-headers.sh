@@ -11,8 +11,8 @@
 # NOT its internal cxxSettings.headerSearchPath entries. TagLib headers use FLAT
 # includes (e.g. fileref.h does `#include "tfile.h"`) but the source is scattered
 # across ~25 subdirs. Flattening into one dir makes both `<taglib/fileref.h>` and
-# its sibling `#include "tfile.h"` resolve deterministically for dependent targets
-# (CTagLibBridge and TagLibSwiftCxx).
+# its sibling `#include "tfile.h"` resolve deterministically for the dependent
+# target (TagLibSwift).
 #
 # Regenerate this whenever the vendored TagLib source is updated. See UPDATING.md.
 #
