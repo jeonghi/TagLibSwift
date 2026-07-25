@@ -133,6 +133,24 @@ final class TagLibCxxTests: XCTestCase {
         XCTAssertEqual(reopened.properties["COMPOSER"], ["Jane Doe"])
     }
 
+    /// Contract: `setProperties` returns the format's rejected/unsupported keys
+    /// (empty means every key was stored). ID3v2 implements the complete
+    /// PropertyMap interface, so a normal write of supported keys must report an
+    /// EMPTY unsupported map — never silent partial data loss reported as success.
+    func testSetPropertiesReturnsEmptyOnFullSuccess() throws {
+        let path = try makeTempCopy()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let file = try XCTUnwrap(AudioFile(path: path))
+        let unsupported = file.setProperties([
+            "TITLE": ["A title"],
+            "ARTIST": ["An artist"],
+            "COMPOSER": ["Jane Doe"]
+        ])
+        XCTAssertTrue(unsupported.isEmpty,
+                      "ID3v2 stores all these keys; unsupported map must be empty")
+    }
+
     // MARK: - Cover art (complex property "PICTURE")
 
     /// A tiny valid PNG (1x1). TagLib stores the picture bytes verbatim, so the
@@ -177,5 +195,43 @@ final class TagLibCxxTests: XCTestCase {
         XCTAssertEqual(picture.mimeType, "image/png")
         XCTAssertEqual(picture.description, "cover")
         XCTAssertEqual(picture.pictureType, .frontCover)
+    }
+
+    /// Unknown/empty pictureType strings must map to `.other`, NEVER a fabricated
+    /// `.frontCover`. (This is the exact regression: the read path previously did
+    /// `PictureType(rawValue:) ?? .frontCover`. This test fails if that returns.)
+    func testUnknownPictureTypeMapsToOtherNotFrontCover() {
+        XCTAssertEqual(Picture.PictureType.from(rawValue: "Some Unlisted Type"), .other)
+        XCTAssertEqual(Picture.PictureType.from(rawValue: ""), .other)
+        XCTAssertNotEqual(Picture.PictureType.from(rawValue: "Some Unlisted Type"), .frontCover)
+        // Known strings still map correctly.
+        XCTAssertEqual(Picture.PictureType.from(rawValue: "Front Cover"), .frontCover)
+        XCTAssertEqual(Picture.PictureType.from(rawValue: "Back Cover"), .backCover)
+    }
+
+    /// A picture whose type is `.other` must NOT be reported as `.frontCover`
+    /// after a roundtrip. (Regression guard: the read path previously mapped any
+    /// unknown/empty pictureType string to `.frontCover`, fabricating meaning;
+    /// it now maps unknown strings to `.other` and roundtrips `.other` as `.other`.)
+    func testCoverArtOtherTypeNotFabricatedAsFrontCover() throws {
+        let path = try makeTempCopy()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let imageData = Data(Self.pngBytes)
+        do {
+            let file = try XCTUnwrap(AudioFile(path: path))
+            file.setPictures([
+                Picture(data: imageData, mimeType: "image/png",
+                        description: "misc", pictureType: .other)
+            ])
+            try file.save()
+        }
+
+        let reopened = try XCTUnwrap(AudioFile(path: path))
+        let picture = try XCTUnwrap(reopened.pictures.first)
+        XCTAssertNotEqual(picture.pictureType, .frontCover,
+                          "an `.other` picture must not roundtrip as `.frontCover`")
+        XCTAssertEqual(picture.pictureType, .other,
+                       "`.other` picture type must roundtrip as `.other`")
     }
 }
