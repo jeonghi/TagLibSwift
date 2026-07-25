@@ -17,9 +17,6 @@
 //    abstract type, so interop drops the constructor entirely. openFile() calls
 //    it from C++ where the default resolves normally.
 //
-//  * TagLib::MPEG::File is non-copyable (deleted copy ctor), so it cannot be
-//    held in a Swift value. id3v2FrameList() owns it for the call's duration.
-//
 //  * TagLib::PropertyMap is a Map<String, StringList>. Rather than rely on the
 //    (uncertain) Swift import of std::map/std::list iterators, the small
 //    copyable helper classes PropertyMapAccess / PropertyMapBuilder flatten the
@@ -41,9 +38,6 @@
 #include "taglib/tvariant.h"
 #include "taglib/tlist.h"
 #include "taglib/audioproperties.h"
-#include "taglib/mpegfile.h"
-#include "taglib/id3v2tag.h"
-#include "taglib/id3v2frame.h"
 
 namespace TagLibInterop {
 
@@ -69,6 +63,13 @@ inline bool save(TagLib::FileRef &ref) {
 // ---------------------------------------------------------------------------
 // AudioProperties (read-only) -- dereferenced on the C++ side
 // ---------------------------------------------------------------------------
+
+// Whether the file exposes an AudioProperties object at all. FileRef only
+// synthesizes one for files it could parse audio from, so this is false for a
+// null ref (and, in principle, a parsed file with no decodable audio stream).
+inline bool hasAudioProperties(const TagLib::FileRef &ref) {
+    return !ref.isNull() && ref.audioProperties() != nullptr;
+}
 
 inline int lengthInSeconds(const TagLib::FileRef &ref) {
     const TagLib::AudioProperties *p = ref.audioProperties();
@@ -368,24 +369,6 @@ private:
 inline bool applyPictures(TagLib::FileRef &ref, const PictureListBuilder &builder) {
     if (ref.isNull()) return false;
     return ref.setComplexProperties("PICTURE", builder.list());
-}
-
-// ---------------------------------------------------------------------------
-// Legacy spike helper retained so the original interop slice test still builds.
-// A COPY of the file's ID3v2 frame list (List<Frame*>). The copied pointers
-// dangle after this returns; the caller must only inspect list metadata.
-// ---------------------------------------------------------------------------
-
-inline TagLib::ID3v2::FrameList id3v2FrameList(const char *path) {
-    TagLib::MPEG::File file(path);
-    if (!file.isValid()) {
-        return TagLib::ID3v2::FrameList();
-    }
-    const TagLib::ID3v2::Tag *tag = file.ID3v2Tag(false);
-    if (!tag) {
-        return TagLib::ID3v2::FrameList();
-    }
-    return tag->frameList();
 }
 
 } // namespace TagLibInterop

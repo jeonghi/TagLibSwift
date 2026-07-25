@@ -10,17 +10,19 @@ Read and write audio metadata in Swift, powered by [TagLib](https://github.com/t
 
 TagLibSwift wraps the TagLib C++ library as a Swift package for iOS and macOS. TagLib's source is **compiled from vendored source by SwiftPM** — no prebuilt binary, no CMake step, and full iOS device **and simulator** support out of the box.
 
+The public API mirrors TagLib's own model — open a file, then reach its `tag`, `audioProperties`, `properties`, and `pictures`, and `save()` — layered over TagLib's C++ types via Swift/C++ interop.
+
 ---
 
 ## Features
 
 - 📖 **Read & write** tags for MP3/ID3v2, FLAC, MP4/M4A, Ogg Vorbis, WAV/AIFF, APE, WavPack, and more.
-- 🎛️ **Two products** — a minimal pure-Swift API, and a full-power API over TagLib's complete C++ surface via opt-in Swift/C++ interop.
-- 🗂️ **Universal metadata** — the format-independent PropertyMap exposes every text tag (`ALBUMARTIST`, `COMPOSER`, `DISCNUMBER`, `BPM`, …) as a plain `[String: [String]]`.
+- 🧱 **TagLib-faithful API** — a single `AudioFile` handle exposing `tag`, `audioProperties`, `properties`, `pictures`, and `save()`, mirroring `TagLib::FileRef`.
+- 🗂️ **Universal metadata** — the format-independent `PropertyMap` exposes every text tag (`ALBUMARTIST`, `COMPOSER`, `DISCNUMBER`, `BPM`, …) as a plain `[String: [String]]`.
 - 🖼️ **Cover art** — read and write embedded pictures as `Data`.
 - 🎚️ **Audio properties** — bitrate, length, sample rate, channels.
-- 🧩 **Escape hatch** — drop down to raw TagLib C++ for format-specific work when you need it.
-- ✅ **Tested** — 37 tests across MP3/FLAC/M4A/Ogg with 100% line coverage of the Swift API.
+- 🧩 **Escape hatch** — drop down to the raw `TagLib.FileRef` for format-specific work when you need it.
+- ✅ **Tested** — 22 tests across MP3/FLAC/M4A/Ogg with 100% line coverage of the Swift API.
 
 ## Requirements
 
@@ -30,8 +32,6 @@ TagLibSwift wraps the TagLib C++ library as a Swift package for iOS and macOS. T
 | Xcode | 15 |
 | iOS | 13.0 |
 | macOS | 10.15 |
-
-> `TagLibSwiftCxx` (the interop product) may raise its own floor if you opt into reference-type imports; the default value-type API keeps the iOS 13 / macOS 10.15 floor.
 
 ## Installation
 
@@ -45,54 +45,39 @@ dependencies: [
 ]
 ```
 
-Then add the product you need to your target:
+Then add the product to your target. **TagLibSwift uses Swift/C++ interoperability, so any target that depends on it must enable C++ interop:**
 
 ```swift
-// Minimal, pure-Swift — no extra build settings.
-.target(name: "MyApp", dependencies: [
-    .product(name: "TagLibSwift", package: "TagLibSwift")
-])
-
-// Full API via C++ interop — the consuming target must enable interop (see below).
 .target(
     name: "MyApp",
-    dependencies: [.product(name: "TagLibSwiftCxx", package: "TagLibSwift")],
+    dependencies: [.product(name: "TagLibSwift", package: "TagLibSwift")],
     swiftSettings: [.interoperabilityMode(.Cxx)]
 )
 ```
 
-In **Xcode**, add the package via *File ▸ Add Package Dependencies…*. For `TagLibSwiftCxx`, set **Build Settings ▸ C++ and Objective-C Interoperability** to **C++/Objective-C++** on the consuming target.
+In **Xcode**, add the package via *File ▸ Add Package Dependencies…*, then set **Build Settings ▸ C++ and Objective-C Interoperability** to **C++/Objective-C++** on the consuming target.
 
-## Products
-
-Pick the library that matches how much of TagLib you need:
-
-| Product | API | Swift/C++ interop | Use it when |
-|---|---|---|---|
-| **`TagLibSwift`** | Pure-Swift `TagFile` over a C ABI bridge. Common tags + save. | No | You want the smallest, most portable footprint and only need common tags. |
-| **`TagLibSwiftCxx`** | Ergonomic `AudioFile` over TagLib's C++ types. Adds PropertyMap, cover art, audio properties, and a raw escape hatch. | **Yes (opt-in)** | You need the full metadata model or format-specific access. |
-
-### The interop opt-in
-
-`TagLibSwiftCxx` uses Swift/C++ interoperability, so any target depending on it **must enable C++ interop** (`.interoperabilityMode(.Cxx)` in SwiftPM, or *C++/Objective-C++* in Xcode). Because C++ interop is not yet ABI-stable, treat adopting `TagLibSwiftCxx` as a deliberate, toolchain-pinned choice. Need only common tags? Stay on `TagLibSwift`.
+> Because Swift/C++ interop is not yet ABI-stable, treat adopting TagLibSwift as a deliberate, toolchain-pinned choice. The API rides the value-type interop path (no imported reference types), which preserves the iOS 13 / macOS 10.15 floor.
 
 ## Quick Start
 
-### `TagLibSwiftCxx` — the `AudioFile` API
-
 ```swift
-import TagLibSwiftCxx
+import TagLibSwift
 import Foundation
 
 guard let file = AudioFile(path: "/path/to/song.flac") else { return }
 
-// Read
-print(file.title, "—", file.artist)
-print(file.bitrate ?? 0, "kbps,", file.lengthInSeconds ?? 0, "s")
+// Read common tags
+print(file.tag.title, "—", file.tag.artist)
+
+// Read audio properties
+if let audio = file.audioProperties {
+    print(audio.bitrate, "kbps,", audio.lengthInSeconds, "s")
+}
 
 // Write common tags
-file.title = "New Title"
-file.year = 2026
+file.tag.title = "New Title"
+file.tag.year = 2026
 
 // Universal, format-independent text tags
 var props = file.properties
@@ -112,16 +97,17 @@ try file.save()
 
 `setProperties(_:)` returns the keys the format could not store (empty means everything was written) — so partial writes are never silent.
 
-### `TagLibSwift` — the pure-Swift API
+### API at a glance
 
-```swift
-import TagLibSwift
-
-let file = try TagFile(path: "/path/to/song.mp3")
-file.artist = "New Artist"
-file.year = 2026
-try file.save()
-```
+| Member | TagLib equivalent | Notes |
+|---|---|---|
+| `AudioFile(path:)` | `FileRef(path)` | Returns `nil` if the file could not be parsed. |
+| `file.isValid` / `file.isNull` | `FileRef::isNull` | Validity of the parsed file. |
+| `file.tag` | `FileRef::tag()` | Live view: `title`, `artist`, `album`, `comment`, `genre`, `year`, `track`, `isEmpty`. Setters persist on `save()`. |
+| `file.audioProperties` | `FileRef::audioProperties()` | Optional; `lengthInSeconds`, `lengthInMilliseconds`, `bitrate`, `sampleRate`, `channels`. |
+| `file.properties` / `setProperties(_:)` | `FileRef::properties()` / `setProperties()` | `PropertyMap` = `[String: [String]]`. `setProperties` returns rejected keys. |
+| `file.pictures` / `setPictures(_:)` | complex property `"PICTURE"` | Cover art as `Picture` values. |
+| `try file.save()` | `FileRef::save()` | Throws `AudioFileError.saveFailed`. |
 
 ### Escape hatch
 
@@ -145,7 +131,7 @@ TagLibSwift vendors **TagLib 2.3.1**. The upstream source lives in-repo, so cons
 swift test
 ```
 
-The pure-Swift tests use a fixture generated by `Tests/TagLibSwiftTests/Resources/create_test_mp3.sh` (requires `ffmpeg`). The `TagLibSwiftCxx` multi-format tests generate their FLAC/M4A/Ogg fixtures automatically at runtime, skipping cleanly if `ffmpeg` or a required encoder is unavailable.
+The base tests use a committed MP3 fixture (regenerate with `Tests/TagLibSwiftTests/Resources/create_test_mp3.sh`, requires `ffmpeg`). The multi-format tests generate their FLAC/M4A/Ogg fixtures automatically at runtime, skipping cleanly if `ffmpeg` or a required encoder is unavailable.
 
 ## License
 

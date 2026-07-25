@@ -1,5 +1,5 @@
 import XCTest
-@testable import TagLibSwiftCxx
+@testable import TagLibSwift
 
 /// Smoke tests across several container formats (FLAC, MP4/M4A, Ogg Vorbis).
 ///
@@ -94,14 +94,13 @@ final class MultiFormatTests: XCTestCase {
         // Base tag read.
         let file = try XCTUnwrap(AudioFile(path: path), "AudioFile failed to open \(ext)")
         XCTAssertTrue(file.isValid, "\(ext) should parse")
-        XCTAssertEqual(file.title, "Original Title", "\(ext) title")
-        XCTAssertEqual(file.artist, "Original Artist", "\(ext) artist")
+        XCTAssertEqual(file.tag.title, "Original Title", "\(ext) title")
+        XCTAssertEqual(file.tag.artist, "Original Artist", "\(ext) artist")
 
         // Audio properties.
-        let bitrate = try XCTUnwrap(file.bitrate, "\(ext) bitrate")
-        XCTAssertGreaterThan(bitrate, 0, "\(ext) bitrate > 0")
-        let lengthMs = try XCTUnwrap(file.lengthInMilliseconds, "\(ext) length")
-        XCTAssertGreaterThan(lengthMs, 0, "\(ext) length > 0")
+        let audio = try XCTUnwrap(file.audioProperties, "\(ext) audioProperties")
+        XCTAssertGreaterThan(audio.bitrate, 0, "\(ext) bitrate > 0")
+        XCTAssertGreaterThan(audio.lengthInMilliseconds, 0, "\(ext) length > 0")
 
         // PropertyMap read.
         XCTAssertFalse(file.properties.isEmpty, "\(ext) PropertyMap non-empty")
