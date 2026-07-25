@@ -20,9 +20,11 @@ The public API mirrors TagLib's own model — open a file, then reach its `tag`,
 - 🧱 **TagLib-faithful API** — a single `AudioFile` handle exposing `tag`, `audioProperties`, `properties`, `pictures`, and `save()`, mirroring `TagLib::FileRef`.
 - 🗂️ **Universal metadata** — the format-independent `PropertyMap` exposes every text tag (`ALBUMARTIST`, `COMPOSER`, `DISCNUMBER`, `BPM`, …) as a plain `[String: [String]]`.
 - 🖼️ **Cover art** — read and write embedded pictures as `Data`.
-- 🎚️ **Audio properties** — bitrate, length, sample rate, channels.
+- 🧬 **Generic complex properties** — read/write any complex-property key (`PICTURE`, `GENERALOBJECT`, …) as typed `ComplexValue` maps.
+- 🎚️ **Audio properties** — bitrate, length, sample rate, channels, plus `bitsPerSample` and MPEG version/layer where the format provides them.
+- 💾 **In-memory I/O** — open from and serialize back to `Data`, no file path required.
 - 🧩 **Escape hatch** — drop down to the raw `TagLib.FileRef` for format-specific work when you need it.
-- ✅ **Tested** — 22 tests across MP3/FLAC/M4A/Ogg with 100% line coverage of the Swift API.
+- ✅ **Tested** — 34 tests across MP3/FLAC/M4A/Ogg (path and in-memory) with 100% line coverage of the Swift API.
 
 ## Requirements
 
@@ -97,16 +99,46 @@ try file.save()
 
 `setProperties(_:)` returns the keys the format could not store (empty means everything was written) — so partial writes are never silent.
 
+### In-memory files
+
+Open audio straight from bytes (e.g. a download) and serialize the edited bytes back out — no temp file needed:
+
+```swift
+guard let file = AudioFile(data: mp3Data, fileExtension: "mp3") else { return }
+file.tag.title = "New Title"
+try file.save()                 // writes back into the in-memory stream
+let updated: Data = try file.serialized()   // reopen with AudioFile(data:fileExtension:)
+```
+
+`serialized()` throws `AudioFileError.notMemoryBacked` on a path-backed file.
+
+### Generic complex properties
+
+Beyond cover art, any complex-property key is reachable as typed `ComplexValue` maps:
+
+```swift
+for key in file.complexPropertyKeys {            // e.g. "PICTURE", "GENERALOBJECT"
+    let maps = file.complexProperties(key)       // [[String: ComplexValue]]
+    // ComplexValue: .string / .int / .bool / .data / .stringList / .unsupported
+}
+file.setComplexProperties("PICTURE", newMaps)    // then save()
+```
+
+`pictures` / `setPictures(_:)` are a thin, typed layer over the `PICTURE` key.
+
 ### API at a glance
 
 | Member | TagLib equivalent | Notes |
 |---|---|---|
 | `AudioFile(path:)` | `FileRef(path)` | Returns `nil` if the file could not be parsed. |
+| `AudioFile(data:fileExtension:)` | `FileRef(IOStream*)` | Opens from an in-memory `Data` buffer via a `ByteVectorStream`. |
+| `try file.serialized()` | `ByteVectorStream::data()` | In-memory bytes after `save()`; throws for path-backed files. |
 | `file.isValid` / `file.isNull` | `FileRef::isNull` | Validity of the parsed file. |
 | `file.tag` | `FileRef::tag()` | Live view: `title`, `artist`, `album`, `comment`, `genre`, `year`, `track`, `isEmpty`. Setters persist on `save()`. |
-| `file.audioProperties` | `FileRef::audioProperties()` | Optional; `lengthInSeconds`, `lengthInMilliseconds`, `bitrate`, `sampleRate`, `channels`. |
+| `file.audioProperties` | `FileRef::audioProperties()` | Optional; `lengthInSeconds`, `lengthInMilliseconds`, `bitrate`, `sampleRate`, `channels`, `bitsPerSample?`, `mpegVersion?`, `mpegLayer?`. |
 | `file.properties` / `setProperties(_:)` | `FileRef::properties()` / `setProperties()` | `PropertyMap` = `[String: [String]]`. `setProperties` returns rejected keys. |
-| `file.pictures` / `setPictures(_:)` | complex property `"PICTURE"` | Cover art as `Picture` values. |
+| `file.complexPropertyKeys` / `complexProperties(_:)` / `setComplexProperties(_:_:)` | `FileRef::complexProperty*` | Any complex-property key as `[[String: ComplexValue]]`. |
+| `file.pictures` / `setPictures(_:)` | complex property `"PICTURE"` | Cover art as `Picture` values (typed layer over the `PICTURE` key). |
 | `try file.save()` | `FileRef::save()` | Throws `AudioFileError.saveFailed`. |
 
 ### Escape hatch
@@ -132,21 +164,25 @@ reach through the raw escape hatch.
 | **Universal text tags** — PropertyMap (`ALBUMARTIST`, `COMPOSER`, `DISCNUMBER`, `BPM`, `LYRICS`, …, any key) | ✅ | `file.properties` / `setProperties(_:)` |
 | **Rejected-key reporting** on write | ✅ | `setProperties(_:)` return value |
 | **Cover art / pictures** — complex `PICTURE` property | ✅ | `file.pictures` / `setPictures(_:)` |
+| **Generic complex properties** — any key as typed `ComplexValue` maps | ✅ | `file.complexPropertyKeys` / `complexProperties(_:)` / `setComplexProperties(_:_:)` |
 | **Audio properties** — length, bitrate, sample rate, channels | ✅ | `file.audioProperties` |
+| **Extended audio props** — `bitsPerSample` (FLAC/WAV/AIFF/MP4/APE/WavPack/TrueAudio/DSF/DSDIFF), MPEG version/layer | ✅ | `file.audioProperties.bitsPerSample` / `.mpegVersion` / `.mpegLayer` |
+| **In-memory / IOStream / ByteVector I/O** (no file path) | ✅ | `AudioFile(data:fileExtension:)` / `try file.serialized()` |
 | **Save to disk** | ✅ | `try file.save()` |
 | **File validity** — isNull / isValid | ✅ | `file.isValid` / `file.isNull` |
 | **All TagLib file formats** (auto-detected) — the API above works on every [supported format](#supported-formats) | ✅ | `AudioFile(path:)` |
-| **Extended per-format audio props** — `bitsPerSample`, MPEG version/layer/channel-mode, MP4 codec, … | 🔶 | `file.fileRef` |
-| **Format-specific tag classes** — ID3v2 frames (chapters, USLT lyrics, POPM rating, TXXX…), MP4 atoms, Xiph comments, APE items, ASF attributes | 🔶 | `file.fileRef` |
-| **Other complex properties** (e.g. `GENERALOBJECT`) | 🔶 | `file.fileRef` |
+| **Format-specific tag content** — ID3v2 / MP4 / Xiph / APE / ASF metadata | ✅ | `file.properties` (text) · `complexProperties(_:)` (binary/structured) |
+| **Format-specific tag _classes_** — raw ID3v2 frames (chapters, USLT lyrics, POPM rating, TXXX…), MP4 atoms, Xiph/APE/ASF objects | 🔶 | `file.fileRef` |
 | **Per-version tag strip/remove** (ID3v1 vs ID3v2, etc.) | 🔶 | `file.fileRef` |
-| **In-memory / IOStream / ByteVector I/O** (no file path) | ❌ | — |
 
-The high-level API fully covers TagLib's **portable metadata model** (base tags,
-the universal PropertyMap that spans every text tag, audio properties, and cover
-art) across all formats. Format-specific classes and in-memory streams are the
-current gaps in the idiomatic layer; the first is reachable via `file.fileRef`,
-the second is not yet exposed.
+The high-level API now covers TagLib's **portable metadata model** end to end —
+base tags, the universal PropertyMap (every text tag), generic complex properties
+(cover art and any other key), extended audio properties, and in-memory I/O —
+across all formats. The remaining 🔶 rows are, by design, thin: the _content_ of
+format-specific tags is already reachable through `properties` (text) and
+`complexProperties` (binary/structured), so wrapping each raw frame/atom _class_
+(hundreds of format-specific APIs) and per-version tag stripping stay reachable
+through the raw `file.fileRef` escape hatch rather than being pre-wrapped.
 
 ## Example app
 
