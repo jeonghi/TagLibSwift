@@ -1,0 +1,5 @@
+module CTagLibCore {
+    umbrella "taglib"
+    requires cplusplus
+    export *
+}

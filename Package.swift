@@ -54,6 +54,10 @@ let package = Package(
             name: "TagLibSwift",
             targets: ["TagLibSwift"]
         ),
+        .library(
+            name: "TagLibSwiftCxx",
+            targets: ["TagLibSwiftCxx"]
+        ),
     ],
     dependencies: [],
     targets: [
@@ -85,6 +89,16 @@ let package = Package(
             name: "TagLibSwift",
             dependencies: ["CTagLibBridge"],
             path: "Sources/TagLibSwift"
+        ),
+        // Opt-in Swift/C++ interop target exposing TagLib's full C++ API.
+        // Only consumers of THIS module take on the C++ interop flag.
+        .target(
+            name: "TagLibSwiftCxx",
+            dependencies: ["CTagLibCore"],
+            path: "Sources/TagLibSwiftCxx",
+            swiftSettings: [
+                .interoperabilityMode(.Cxx)
+            ]
         ),
         .testTarget(
             name: "TagLibSwiftTests",
