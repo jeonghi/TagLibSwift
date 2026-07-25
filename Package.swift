@@ -15,19 +15,17 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
-        .binaryTarget(
-            name: "TagLib",
-            path: "TagLib.xcframework"
-        ),
         .target(
             name: "CTagLib",
             path: "Sources/CTagLib",
             exclude: ["README.md"],
-            publicHeadersPath: ".",
+            publicHeadersPath: "include",
             cSettings: [],
             cxxSettings: [
                 .headerSearchPath("config"),
                 .headerSearchPath("."),
+                .headerSearchPath("include"),
+                .headerSearchPath("bridge"),
                 .headerSearchPath("taglib"),
                 .headerSearchPath("taglib/toolkit"),
                 .headerSearchPath("taglib/mpeg"),
@@ -66,22 +64,8 @@ let package = Package(
             ]
         ),
         .target(
-            name: "TagLibCBridge",
-            dependencies: ["TagLib"],
-            path: "Sources/TagLibCBridge",
-            cxxSettings: [
-                .headerSearchPath("."),
-                .headerSearchPath("../TagLib.xcframework/Headers"),
-                .unsafeFlags(["-std=c++17"])
-            ],
-            linkerSettings: [
-                .linkedLibrary("c++"),
-                .linkedLibrary("z")
-            ]
-        ),
-        .target(
             name: "TagLibSwift",
-            dependencies: ["TagLibCBridge", "TagLib"],
+            dependencies: ["CTagLib"],
             path: "Sources/TagLibSwift"
         ),
         .testTarget(
