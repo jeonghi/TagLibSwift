@@ -180,9 +180,15 @@ public:
             // format's tags correctly (the canonical PropertyMap read path).
             map_ = ref.properties();
         }
-        for (auto it = map_.begin(); it != map_.end(); ++it) {
-            keys_.append(it->first);
-        }
+        rebuildKeys();
+    }
+
+    // Snapshot an already-computed PropertyMap directly. Used to surface the
+    // "unsupported" map that FileRef::setProperties() returns (the keys/values
+    // the format could not store) back to Swift via the same flat, value-type,
+    // index-addressed accessors used for reads.
+    explicit PropertyMapAccess(const TagLib::PropertyMap &map) : map_(map) {
+        rebuildKeys();
     }
 
     unsigned int keyCount() const {
@@ -204,6 +210,13 @@ public:
     }
 
 private:
+    void rebuildKeys() {
+        keys_.clear();
+        for (auto it = map_.begin(); it != map_.end(); ++it) {
+            keys_.append(it->first);
+        }
+    }
+
     TagLib::PropertyMap map_;
     TagLib::StringList keys_;
 };
@@ -240,10 +253,17 @@ private:
 // of a Swift-held C++ value did not propagate newly created frames (existing
 // frames updated, but e.g. a new COMPOSER/TCOM frame was silently dropped),
 // whereas a free function receiving the same `inout` writes correctly.
-inline bool applyProperties(TagLib::FileRef &ref, const PropertyMapBuilder &builder) {
-    if (ref.isNull()) return false;
-    ref.setProperties(builder.map());
-    return true;
+// FileRef::setProperties() RETURNS the subset of properties the format could
+// not store (unsupported/rejected keys). Ignoring it silently drops data, so we
+// surface it back to Swift as a PropertyMapAccess snapshot (empty => full
+// success). On a null ref there is nothing to store; every requested key is
+// effectively unsupported, so echo the builder's map back as rejected.
+inline PropertyMapAccess applyProperties(TagLib::FileRef &ref,
+                                         const PropertyMapBuilder &builder) {
+    if (ref.isNull()) {
+        return PropertyMapAccess(builder.map());
+    }
+    return PropertyMapAccess(ref.setProperties(builder.map()));
 }
 
 // ---------------------------------------------------------------------------

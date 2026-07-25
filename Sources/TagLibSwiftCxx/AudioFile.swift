@@ -25,7 +25,7 @@ public final class AudioFile {
     /// callers can reach format-specific classes (ID3v2 frames, etc.) through it.
     /// Mutating it directly bypasses `AudioFile`'s conveniences; prefer the typed
     /// accessors below for anything they cover.
-    public var fileRef: TagLib.FileRef
+    public private(set) var fileRef: TagLib.FileRef
 
     /// Open the file at `path`. Returns `nil` if TagLib could not parse it.
     public init?(path: String) {
@@ -139,7 +139,13 @@ public final class AudioFile {
     }
 
     /// Replace all text tags with `props`. Call ``save()`` afterwards to persist.
-    public func setProperties(_ props: [String: [String]]) {
+    ///
+    /// - Returns: The properties the format could **not** store (its rejected /
+    ///   unsupported keys and their values). An empty map means every key was
+    ///   accepted. TagLib's `setProperties` reports these so a partial write is
+    ///   not silent data loss; inspect the result if you need to know.
+    @discardableResult
+    public func setProperties(_ props: [String: [String]]) -> [String: [String]] {
         var builder = TagLibInterop.PropertyMapBuilder()
         for (key, values) in props {
             if values.isEmpty {
@@ -157,7 +163,27 @@ public final class AudioFile {
         // Applied via a free function (not a builder method): passing an `inout`
         // FileRef to a member method of a Swift-held C++ value silently dropped
         // newly created frames. See applyProperties in taglib_interop.h.
-        _ = TagLibInterop.applyProperties(&fileRef, builder)
+        //
+        // applyProperties returns the unsupported/rejected PropertyMap as a flat,
+        // value-type snapshot (same crossing as reads); rebuild it here.
+        let unsupported = TagLibInterop.applyProperties(&fileRef, builder)
+        var result: [String: [String]] = [:]
+        let keyCount = unsupported.keyCount()
+        var i: UInt32 = 0
+        while i < keyCount {
+            let key = String(unsupported.key(i))
+            let valueCount = unsupported.valueCount(i)
+            var values: [String] = []
+            values.reserveCapacity(Int(valueCount))
+            var j: UInt32 = 0
+            while j < valueCount {
+                values.append(String(unsupported.value(i, j)))
+                j += 1
+            }
+            result[key] = values
+            i += 1
+        }
+        return result
     }
 
     // MARK: - Cover art (complex property "PICTURE")
@@ -185,8 +211,10 @@ public final class AudioFile {
                         }
                     }
                 }
-                let type = Picture.PictureType(rawValue: String(access.pictureType(i)))
-                    ?? .frontCover
+                // Unknown/empty pictureType strings map to `.other`, never a
+                // fabricated `.frontCover` (that would distort meaning on a
+                // set->save->read roundtrip).
+                let type = Picture.PictureType.from(rawValue: String(access.pictureType(i)))
                 result.append(
                     Picture(
                         data: data,
