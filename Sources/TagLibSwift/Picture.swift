@@ -64,4 +64,36 @@ public struct Picture: Equatable {
         self.description = description
         self.pictureType = pictureType
     }
+
+    // MARK: - Complex-property ("PICTURE") mapping
+
+    /// Rebuild a `Picture` from one `PICTURE` complex-property map. Missing or
+    /// wrongly-typed fields fall back to empty defaults (`.other` for the type),
+    /// matching the prior read behavior.
+    init(complexMap map: [String: ComplexValue]) {
+        var data = Data()
+        if case let .data(bytes)? = map["data"] { data = bytes }
+        var mimeType = ""
+        if case let .string(value)? = map["mimeType"] { mimeType = value }
+        var description = ""
+        if case let .string(value)? = map["description"] { description = value }
+        var typeString = ""
+        if case let .string(value)? = map["pictureType"] { typeString = value }
+        self.init(
+            data: data,
+            mimeType: mimeType,
+            description: description,
+            pictureType: PictureType.from(rawValue: typeString)
+        )
+    }
+
+    /// This picture as a `PICTURE` complex-property map.
+    var complexMap: [String: ComplexValue] {
+        [
+            "data": .data(data),
+            "mimeType": .string(mimeType),
+            "description": .string(description),
+            "pictureType": .string(pictureType.rawValue),
+        ]
+    }
 }
