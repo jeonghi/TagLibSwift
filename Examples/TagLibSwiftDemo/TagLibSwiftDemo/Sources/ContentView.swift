@@ -1,4 +1,5 @@
 import SwiftUI
+import TagLibSwift
 import UniformTypeIdentifiers
 #if canImport(PhotosUI)
 import PhotosUI
@@ -19,6 +20,8 @@ struct ContentView: View {
                 fileSection
                 tagSection
                 audioPropertiesSection
+                inMemorySection
+                complexPropertiesSection
                 propertyMapSection
                 coverArtSection
                 saveSection
@@ -53,6 +56,7 @@ struct ContentView: View {
                 .lineLimit(1)
             LabeledContent("isValid", value: model.isValid ? "true" : "false")
             LabeledContent("tag.isEmpty", value: model.tagIsEmpty ? "true" : "false")
+            LabeledContent("Backing", value: model.isMemoryBacked ? "memory" : "file")
             Button("Load bundled sample") { model.loadBundledSample() }
             Button("Open other audio file…") { showAudioImporter = true }
         }
@@ -79,9 +83,60 @@ struct ContentView: View {
                 LabeledContent("Bitrate", value: "\(p.bitrate) kbps")
                 LabeledContent("Sample rate", value: "\(p.sampleRate) Hz")
                 LabeledContent("Channels", value: "\(p.channels)")
+                LabeledContent("Bits per sample", value: p.bitsPerSample.map { "\($0)" } ?? "—")
+                LabeledContent("MPEG version", value: mpegVersionLabel(p.mpegVersion))
+                LabeledContent("MPEG layer", value: p.mpegLayer.map { "\($0)" } ?? "—")
             } else {
                 Text("No audio properties available.")
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var inMemorySection: some View {
+        Section("In-memory") {
+            Button("Open in-memory copy of current file") { model.openInMemoryCopy() }
+            Button("Serialize & verify") { model.serializeAndVerify() }
+                .disabled(!model.isMemoryBacked)
+        }
+    }
+
+    @ViewBuilder
+    private var complexPropertiesSection: some View {
+        Section("Complex properties") {
+            if model.complexPropertyKeys.isEmpty {
+                Text("No complex properties for this file.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.complexPropertyKeys, id: \.self) { key in
+                    let entries = model.complexProperties[key] ?? []
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(key)
+                            .font(.headline)
+                        ForEach(Array(entries.enumerated()), id: \.offset) { index, fields in
+                            VStack(alignment: .leading, spacing: 2) {
+                                ForEach(fields.keys.sorted(), id: \.self) { field in
+                                    if let value = fields[field] {
+                                        HStack(alignment: .top) {
+                                            Text(field)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            Spacer()
+                                            Text(complexValueDescription(value))
+                                                .font(.caption)
+                                                .multilineTextAlignment(.trailing)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.leading, 8)
+                            if index < entries.count - 1 {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
             }
         }
     }
@@ -192,6 +247,27 @@ struct ContentView: View {
 
     private func formatDuration(_ seconds: Int) -> String {
         String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func mpegVersionLabel(_ version: AudioProperties.MPEGVersion?) -> String {
+        guard let version else { return "—" }
+        switch version {
+        case .version1: return "MPEG 1 (\(version.rawValue))"
+        case .version2: return "MPEG 2 (\(version.rawValue))"
+        case .version2_5: return "MPEG 2.5 (\(version.rawValue))"
+        case .version4: return "MPEG 4 (\(version.rawValue))"
+        }
+    }
+
+    private func complexValueDescription(_ value: ComplexValue) -> String {
+        switch value {
+        case .string(let s): return s
+        case .int(let n): return "\(n)"
+        case .bool(let b): return b ? "true" : "false"
+        case .data(let d): return "\(d.count) bytes"
+        case .stringList(let list): return list.joined(separator: ", ")
+        case .unsupported: return "(unsupported)"
+        }
     }
 }
 

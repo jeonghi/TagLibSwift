@@ -30,6 +30,9 @@ final class DemoModel: ObservableObject {
     @Published var currentPath: String = ""
     @Published var displayName: String = ""
     @Published var isValid: Bool = false
+    /// True when the active `AudioFile` was opened from an in-memory buffer
+    /// (`init(data:fileExtension:)`) rather than from a path on disk.
+    @Published var isMemoryBacked: Bool = false
 
     // Base tag fields (bound to file.tag.* on save).
     @Published var title = ""
@@ -50,6 +53,11 @@ final class DemoModel: ObservableObject {
 
     // Cover art.
     @Published var pictures: [TagLibSwift.Picture] = []
+
+    // Generic complex properties (format-specific, e.g. embedded pictures,
+    // chapters, MusicBrainz IDs). Read-only display.
+    @Published var complexPropertyKeys: [String] = []
+    @Published var complexProperties: [String: [[String: ComplexValue]]] = [:]
 
     // User feedback.
     @Published var statusMessage: String = ""
@@ -107,6 +115,7 @@ final class DemoModel: ObservableObject {
         self.currentPath = path
         self.displayName = display
         self.isValid = opened.isValid
+        self.isMemoryBacked = false
         refreshFromFile()
         report("Opened \(display) (isValid: \(opened.isValid), isNull: \(opened.isNull))", error: false)
     }
@@ -132,6 +141,72 @@ final class DemoModel: ObservableObject {
 
         pictures = file.pictures
         rejectedKeys = []
+
+        complexPropertyKeys = file.complexPropertyKeys.sorted()
+        var complexMap: [String: [[String: ComplexValue]]] = [:]
+        for key in complexPropertyKeys {
+            complexMap[key] = file.complexProperties(key)
+        }
+        complexProperties = complexMap
+    }
+
+    // MARK: - In-memory I/O
+
+    /// The file extension (no leading dot) of the currently open file, derived
+    /// from `currentPath`/`displayName`. Used to hint `AudioFile(data:fileExtension:)`.
+    private var currentFileExtension: String {
+        let name = displayName.isEmpty ? currentPath : displayName
+        return (name as NSString).pathExtension
+    }
+
+    /// Read the current file's bytes from disk and reopen them as an
+    /// in-memory-backed `AudioFile`, replacing the active file.
+    func openInMemoryCopy() {
+        guard !currentPath.isEmpty else {
+            report("No file open.", error: true)
+            return
+        }
+        let ext = currentFileExtension
+        guard let bytes = try? Data(contentsOf: URL(fileURLWithPath: currentPath)) else {
+            report("Could not read current file's bytes from disk.", error: true)
+            return
+        }
+        guard let memoryFile = AudioFile(data: bytes, fileExtension: ext) else {
+            report("AudioFile(data:fileExtension:) failed to parse the in-memory copy.", error: true)
+            return
+        }
+        self.file = memoryFile
+        self.isValid = memoryFile.isValid
+        self.isMemoryBacked = true
+        refreshFromFile()
+        report("Opened in-memory copy (\(bytes.count) bytes).", error: false)
+    }
+
+    /// Serialize the active memory-backed file, then reopen the resulting
+    /// `Data` and confirm the title round-trips, proving `serialized()` +
+    /// `init(data:fileExtension:)` compose correctly.
+    func serializeAndVerify() {
+        guard let file else {
+            report("No file open.", error: true)
+            return
+        }
+        do {
+            let data = try file.serialized()
+            let expectedTitle = file.tag.title
+            guard let reopened = AudioFile(data: data, fileExtension: currentFileExtension) else {
+                report("Serialized \(data.count) bytes, but reopening them failed.", error: true)
+                return
+            }
+            if reopened.tag.title == expectedTitle {
+                report("Serialized \(data.count) bytes; verified title round-trips (\"\(expectedTitle)\").", error: false)
+            } else {
+                report("Serialized \(data.count) bytes, but title mismatched on reopen (expected \"\(expectedTitle)\", got \"\(reopened.tag.title)\").", error: true)
+            }
+        } catch AudioFileError.notMemoryBacked {
+            report("Serialize failed: file is path-backed, not memory-backed.", error: true)
+        } catch {
+            report("Serialize failed: \(error)", error: true)
+        }
     }
 
     // MARK: - PropertyMap editing
@@ -218,6 +293,7 @@ final class DemoModel: ObservableObject {
             return
         }
         self.file = reopened
+        self.isMemoryBacked = false
         refreshFromFile()
         report("Reopened from disk — values reflect what was persisted.", error: false)
     }
