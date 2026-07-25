@@ -1,5 +1,5 @@
 #include "taglib_c_bridge.h"
-#include <taglib/toolkit/taglib.h>
+#include <taglib/taglib.h>
 #include <taglib/fileref.h>
 #include <taglib/tag.h>
 #include <string>
