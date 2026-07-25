@@ -1,5 +1,6 @@
 import CTagLibCore
 import CxxStdlib
+import Foundation
 
 /// Errors thrown by ``AudioFile``.
 public enum AudioFileError: Error, Equatable {
@@ -157,5 +158,72 @@ public final class AudioFile {
         // FileRef to a member method of a Swift-held C++ value silently dropped
         // newly created frames. See applyProperties in taglib_interop.h.
         _ = TagLibInterop.applyProperties(&fileRef, builder)
+    }
+
+    // MARK: - Cover art (complex property "PICTURE")
+
+    /// Embedded pictures (cover art) as ``Picture`` values, read from TagLib's
+    /// `complexProperties("PICTURE")`.
+    ///
+    /// Reading snapshots the file's picture list once on the C++ side and
+    /// rebuilds it here. Setting replaces the whole list via
+    /// `setComplexProperties`; call ``save()`` to persist.
+    public var pictures: [Picture] {
+        get {
+            let access = TagLibInterop.PictureListAccess(fileRef)
+            var result: [Picture] = []
+            let count = access.count()
+            result.reserveCapacity(Int(count))
+            var i: UInt32 = 0
+            while i < count {
+                let size = Int(access.pictureDataSize(i))
+                var data = Data(count: size)
+                if size > 0 {
+                    data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+                        if let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) {
+                            access.copyPictureData(i, base)
+                        }
+                    }
+                }
+                let type = Picture.PictureType(rawValue: String(access.pictureType(i)))
+                    ?? .frontCover
+                result.append(
+                    Picture(
+                        data: data,
+                        mimeType: String(access.mimeType(i)),
+                        description: String(access.description(i)),
+                        pictureType: type
+                    )
+                )
+                i += 1
+            }
+            return result
+        }
+        set { setPictures(newValue) }
+    }
+
+    /// Replace all embedded pictures with `pictures`. Call ``save()`` to persist.
+    public func setPictures(_ pictures: [Picture]) {
+        var builder = TagLibInterop.PictureListBuilder()
+        for picture in pictures {
+            picture.description.withCString { descPtr in
+                picture.mimeType.withCString { mimePtr in
+                    picture.pictureType.rawValue.withCString { typePtr in
+                        picture.data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                            let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self)
+                            builder.append(
+                                base,
+                                UInt32(picture.data.count),
+                                mimePtr,
+                                descPtr,
+                                typePtr
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // Free function, not a member method (see setProperties / applyProperties).
+        _ = TagLibInterop.applyPictures(&fileRef, builder)
     }
 }

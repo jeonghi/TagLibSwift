@@ -27,7 +27,9 @@
 //    copyable value types, so they import on the value-type path (no reference
 //    types => the iOS 13 / macOS 10.15 floor is preserved).
 
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "taglib/fileref.h"
 #include "taglib/tfile.h"
@@ -35,6 +37,9 @@
 #include "taglib/tstring.h"
 #include "taglib/tstringlist.h"
 #include "taglib/tpropertymap.h"
+#include "taglib/tbytevector.h"
+#include "taglib/tvariant.h"
+#include "taglib/tlist.h"
 #include "taglib/audioproperties.h"
 #include "taglib/mpegfile.h"
 #include "taglib/id3v2tag.h"
@@ -239,6 +244,110 @@ inline bool applyProperties(TagLib::FileRef &ref, const PropertyMapBuilder &buil
     if (ref.isNull()) return false;
     ref.setProperties(builder.map());
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Cover art -- complex properties under the "PICTURE" key
+// (FileRef::complexProperties / setComplexProperties, a List<VariantMap>).
+//
+// Same value-type crossing strategy as PropertyMap: PictureListAccess snapshots
+// the pictures once and flattens each VariantMap's "data" (ByteVector),
+// "mimeType", "description" and "pictureType" (String) fields into stable,
+// index-addressed accessors. Binary picture bytes are copied into std::string
+// buffers held by the access object, so the pointers returned by pictureData()
+// stay valid for the object's lifetime (a temporary ByteVector's data() would
+// dangle). Both helpers are concrete copyable value types (floor preserved).
+// ---------------------------------------------------------------------------
+
+class PictureListAccess {
+public:
+    explicit PictureListAccess(const TagLib::FileRef &ref) {
+        if (ref.isNull()) return;
+        const TagLib::List<TagLib::VariantMap> pics =
+            ref.complexProperties("PICTURE");
+        for (auto it = pics.begin(); it != pics.end(); ++it) {
+            const TagLib::VariantMap &m = *it;
+            Entry e;
+            const TagLib::ByteVector bv = variantByteVector(m, "data");
+            e.data.assign(bv.data(), bv.size());
+            e.mimeType = variantString(m, "mimeType");
+            e.description = variantString(m, "description");
+            e.pictureType = variantString(m, "pictureType");
+            entries_.push_back(std::move(e));
+        }
+    }
+
+    unsigned int count() const {
+        return static_cast<unsigned int>(entries_.size());
+    }
+
+    unsigned int pictureDataSize(unsigned int i) const {
+        return static_cast<unsigned int>(entries_[i].data.size());
+    }
+
+    // Copy picture i's raw bytes into a Swift-provided buffer of at least
+    // pictureDataSize(i) bytes. (Swift/C++ interop refuses to import a method
+    // that returns an interior pointer, so the crossing is a copy instead.)
+    void copyPictureData(unsigned int i, char *dest) const {
+        const std::string &d = entries_[i].data;
+        if (!d.empty()) {
+            std::memcpy(dest, d.data(), d.size());
+        }
+    }
+
+    std::string mimeType(unsigned int i) const { return entries_[i].mimeType; }
+    std::string description(unsigned int i) const { return entries_[i].description; }
+    std::string pictureType(unsigned int i) const { return entries_[i].pictureType; }
+
+private:
+    struct Entry {
+        std::string data;
+        std::string mimeType;
+        std::string description;
+        std::string pictureType;
+    };
+
+    static TagLib::ByteVector variantByteVector(const TagLib::VariantMap &m,
+                                                const char *key) {
+        auto it = m.find(TagLib::String(key));
+        return it != m.end() ? it->second.toByteVector() : TagLib::ByteVector();
+    }
+
+    static std::string variantString(const TagLib::VariantMap &m,
+                                     const char *key) {
+        auto it = m.find(TagLib::String(key));
+        return it != m.end() ? it->second.toString().to8Bit(true) : std::string();
+    }
+
+    std::vector<Entry> entries_;
+};
+
+// Accumulates a List<VariantMap> of pictures from Swift, one at a time. Apply
+// with the free function applyPictures() (free function for the same inout-
+// FileRef reason documented on applyProperties), then save() to persist.
+class PictureListBuilder {
+public:
+    void append(const char *data, unsigned int dataSize,
+                const char *mimeType, const char *description,
+                const char *pictureType) {
+        TagLib::VariantMap m;
+        m.insert("data", TagLib::Variant(TagLib::ByteVector(data, dataSize)));
+        m.insert("mimeType", TagLib::Variant(TagLib::String(mimeType, TagLib::String::UTF8)));
+        m.insert("description", TagLib::Variant(TagLib::String(description, TagLib::String::UTF8)));
+        m.insert("pictureType", TagLib::Variant(TagLib::String(pictureType, TagLib::String::UTF8)));
+        list_.append(m);
+    }
+
+    const TagLib::List<TagLib::VariantMap> &list() const { return list_; }
+
+private:
+    TagLib::List<TagLib::VariantMap> list_;
+};
+
+// Apply a builder's picture list to a file (free function -- see applyProperties).
+inline bool applyPictures(TagLib::FileRef &ref, const PictureListBuilder &builder) {
+    if (ref.isNull()) return false;
+    return ref.setComplexProperties("PICTURE", builder.list());
 }
 
 // ---------------------------------------------------------------------------
