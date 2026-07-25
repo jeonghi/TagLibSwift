@@ -19,7 +19,6 @@
 /* Indicates whether debug messages are shown even in release mode */
 /* #undef TRACE_IN_RELEASE */
 
-#define TESTS_DIR "/Users/jeonghi/WorksProjects/TagLibSwift/taglib/tests/"
 /* #undef TESTS_TMPDIR */
 
 #endif
