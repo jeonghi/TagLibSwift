@@ -23,7 +23,7 @@ public enum TagLibCxx {
             if ref.isNull() { return nil }
             return AudioInfo(
                 bitrate: Int(TagLibInterop.bitrate(ref)),
-                lengthMs: Int(TagLibInterop.lengthMs(ref))
+                lengthMs: Int(TagLibInterop.lengthInMilliseconds(ref))
             )
         }
     }
@@ -38,8 +38,9 @@ public enum TagLibCxx {
             // Swift String here to prove the container bridges cleanly. to8Bit(true)
             // yields a std::string (an independent value) that CxxStdlib maps to
             // Swift.String.
-            let tagLibString = TagLibInterop.title(ref)
-            return String(tagLibString.to8Bit(true))
+            // TagLibInterop.title returns a std::string (UTF-8) that CxxStdlib
+            // bridges to Swift.String cleanly.
+            return String(TagLibInterop.title(ref))
         }
     }
 
