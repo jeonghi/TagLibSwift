@@ -3,25 +3,25 @@
 #include <taglib/fileref.h>
 #include <taglib/tag.h>
 #include <string>
-#include <mutex>
+#include <memory>
 
 namespace {
-    std::string g_lastError;
-    std::mutex g_errorMutex;
+    // Per-thread error buffer: each thread reads back the error it set, and the
+    // returned c_str() stays valid until the same thread next mutates it. This
+    // avoids the cross-thread clobbering and use-after-unlock races a shared
+    // global buffer would have.
+    thread_local std::string g_lastError;
 
     void set_error(const std::string& error) {
-        std::lock_guard<std::mutex> lock(g_errorMutex);
         g_lastError = error;
     }
 }
 
 const char* taglib_get_last_error(void) {
-    std::lock_guard<std::mutex> lock(g_errorMutex);
     return g_lastError.c_str();
 }
 
 void taglib_clear_error(void) {
-    std::lock_guard<std::mutex> lock(g_errorMutex);
     g_lastError.clear();
 }
 
@@ -36,25 +36,25 @@ struct TagLib_File {
 
 TagLib_File* taglib_file_new(const char* path) {
     try {
-        auto file = new TagLib_File();
+        // unique_ptr owns the wrapper until we hand it off, so an exception
+        // thrown while constructing the FileRef cannot leak it.
+        auto file = std::make_unique<TagLib_File>();
         file->fileRef = new TagLib::FileRef(path);
-        
+
         if (file->fileRef->isNull()) {
             set_error("Failed to open file: " + std::string(path));
             delete file->fileRef;
-            delete file;
             return nullptr;
         }
-        
+
         file->tag = file->fileRef->tag();
         if (!file->tag) {
             set_error("Failed to get tag from file: " + std::string(path));
             delete file->fileRef;
-            delete file;
             return nullptr;
         }
-        
-        return file;
+
+        return file.release();
     } catch (const std::exception& e) {
         set_error("Exception while opening file: " + std::string(e.what()));
         return nullptr;
@@ -75,7 +75,11 @@ int taglib_file_save(TagLib_File* file) {
     }
     
     try {
-        return file->fileRef->save() ? 1 : 0;
+        if (file->fileRef->save()) {
+            return 1;
+        }
+        set_error("Failed to save file");
+        return 0;
     } catch (const std::exception& e) {
         set_error("Exception while saving file: " + std::string(e.what()));
         return 0;

@@ -147,8 +147,9 @@ final class TagFileTests: XCTestCase {
         
         // 저장 실패 테스트
         XCTAssertThrowsError(try file.save()) { error in
-            if case TagLibError.saveFailed = error {
-                // 성공
+            if case TagLibError.saveFailed(let message) = error {
+                // 실패 시 항상 진단 메시지가 채워져야 함 (빈 문자열이면 안 됨)
+                XCTAssertFalse(message.isEmpty, "saveFailed should carry a non-empty message")
             } else {
                 XCTFail("Expected saveFailed error")
             }
