@@ -49,8 +49,8 @@ struct ContentView: View {
 
     private var fileSection: some View {
         Section("File") {
-            LabeledContent("Path", value: model.currentPath.isEmpty ? "—" : model.currentPath)
-                .lineLimit(2)
+            LabeledContent("File", value: model.displayName.isEmpty ? "—" : model.displayName)
+                .lineLimit(1)
             LabeledContent("isValid", value: model.isValid ? "true" : "false")
             LabeledContent("tag.isEmpty", value: model.tagIsEmpty ? "true" : "false")
             Button("Load bundled sample") { model.loadBundledSample() }

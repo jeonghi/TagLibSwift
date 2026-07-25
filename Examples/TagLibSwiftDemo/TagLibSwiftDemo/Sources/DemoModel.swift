@@ -23,8 +23,12 @@ struct PropertyEntry: Identifiable, Equatable {
 @MainActor
 final class DemoModel: ObservableObject {
 
-    // Which file is currently open (for display).
+    // Which file is currently open. `currentPath` is the on-disk path used
+    // internally (reopen, etc.) and is NOT shown in the UI — showing the raw
+    // absolute path leaks the sandbox/host location. `displayName` is the
+    // user-facing label (just the file name).
     @Published var currentPath: String = ""
+    @Published var displayName: String = ""
     @Published var isValid: Bool = false
 
     // Base tag fields (bound to file.tag.* on save).
@@ -101,6 +105,7 @@ final class DemoModel: ObservableObject {
         }
         self.file = opened
         self.currentPath = path
+        self.displayName = display
         self.isValid = opened.isValid
         refreshFromFile()
         report("Opened \(display) (isValid: \(opened.isValid), isNull: \(opened.isNull))", error: false)
