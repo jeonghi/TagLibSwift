@@ -40,7 +40,8 @@ install/
 # The demo app ships a committed, standalone-openable generated Xcode project.
 !Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj
 !Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/**
-# ...but never the per-user or tuist-regenerated bits.
+# ...but never the per-user bits (any xcuserdata, incl. the nested workspace one).
+Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/**/xcuserdata/
 Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/xcuserdata/
 Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcworkspace/
 
