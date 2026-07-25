@@ -8,11 +8,11 @@
 namespace {
     std::string g_lastError;
     std::mutex g_errorMutex;
-}
 
-void set_error(const std::string& error) {
-    std::lock_guard<std::mutex> lock(g_errorMutex);
-    g_lastError = error;
+    void set_error(const std::string& error) {
+        std::lock_guard<std::mutex> lock(g_errorMutex);
+        g_lastError = error;
+    }
 }
 
 const char* taglib_get_last_error(void) {
