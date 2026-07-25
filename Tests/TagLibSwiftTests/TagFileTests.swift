@@ -198,4 +198,21 @@ final class TagFileTests: XCTestCase {
         // 모든 작업이 완료될 때까지 대기
         group.wait()
     }
-} 
+
+    // MARK: - TagLibError.localizedDescription
+
+    func testLocalizedDescriptionForAllCases() {
+        XCTAssertEqual(
+            TagLibError.fileOpenFailed("x").localizedDescription,
+            "Failed to open file: x"
+        )
+        XCTAssertEqual(
+            TagLibError.fileNotOpen.localizedDescription,
+            "File is not open"
+        )
+        XCTAssertEqual(
+            TagLibError.saveFailed("y").localizedDescription,
+            "Failed to save file: y"
+        )
+    }
+}

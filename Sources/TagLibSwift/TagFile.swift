@@ -1,5 +1,5 @@
 import Foundation
-import CTagLib
+import CTagLibBridge
 
 public class TagFile {
     private var file: OpaquePointer?
@@ -97,10 +97,10 @@ public class TagFile {
     }
     
     public func save() throws {
-        guard let file = file else {
-            throw TagLibError.fileOpenFailed("File not open")
-        }
-        
+        // `file` is only ever nil before `init` succeeds (which throws before a
+        // `TagFile` can exist) or after `deinit` frees it (at which point no
+        // caller can hold a reference to invoke `save()`). So on any live
+        // `TagFile` instance, `file` is always non-nil here.
         taglib_clear_error()
         if taglib_file_save(file) == 0 {
             throw TagLibError.saveFailed(String(cString: taglib_get_last_error()))

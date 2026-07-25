@@ -1,6 +1,7 @@
 #include "taglib_c_bridge.h"
-#include <taglib/toolkit/taglib.h>
+#include <taglib/taglib.h>
 #include <taglib/fileref.h>
+#include <taglib/tfile.h>
 #include <taglib/tag.h>
 #include <string>
 #include <memory>
@@ -87,7 +88,12 @@ int taglib_file_save(TagLib_File* file) {
 }
 
 int taglib_file_is_valid(TagLib_File* file) {
-    return (file && file->fileRef && !file->fileRef->isNull()) ? 1 : 0;
+    // Require not just a non-null FileRef but a wrapped File that reports itself
+    // valid: a corrupt-but-openable file can yield a non-null ref whose
+    // underlying File::isValid() is false. (This only tightens the isValid
+    // query; taglib_file_new's acceptance criteria are intentionally unchanged.)
+    return (file && file->fileRef && !file->fileRef->isNull()
+            && file->fileRef->file() && file->fileRef->file()->isValid()) ? 1 : 0;
 }
 
 const char* taglib_file_get_title(TagLib_File* file) {
