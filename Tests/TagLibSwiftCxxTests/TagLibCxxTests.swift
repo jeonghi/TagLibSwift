@@ -1,4 +1,6 @@
 import XCTest
+import CTagLibCore
+import CxxStdlib
 @testable import TagLibSwiftCxx
 
 final class TagLibCxxTests: XCTestCase {
@@ -233,5 +235,89 @@ final class TagLibCxxTests: XCTestCase {
                           "an `.other` picture must not roundtrip as `.frontCover`")
         XCTAssertEqual(picture.pictureType, .other,
                        "`.other` picture type must roundtrip as `.other`")
+    }
+
+    // MARK: - String(taglib:) escape-hatch bridging
+
+    /// The day-to-day API never surfaces a raw `TagLib::String` (the
+    /// `TagLibInterop` helpers already return `std::string`, which CxxStdlib
+    /// bridges to `Swift.String` directly). `String(taglib:)` exists for the
+    /// raw escape hatch: any format-specific TagLib C++ API reached directly
+    /// (e.g. constructing/receiving a `TagLib::String` value) hands back this
+    /// type, and this initializer decodes it as UTF-8.
+    func testTaglibStringConversionViaRawEscapeHatch() throws {
+        let rawTitle = TagLib.String("Original Title")
+        XCTAssertEqual(String(taglib: rawTitle), "Original Title")
+    }
+
+    // MARK: - AudioFile.save() failure
+
+    func testAudioFileSaveFailure() throws {
+        let path = try makeTempCopy()
+        defer {
+            try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: path)
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: path)
+
+        let file = try XCTUnwrap(AudioFile(path: path))
+        file.title = "New Title"
+
+        XCTAssertThrowsError(try file.save()) { error in
+            XCTAssertEqual(error as? AudioFileError, .saveFailed)
+        }
+    }
+
+    // MARK: - Audio properties: lengthInSeconds
+
+    func testLengthInSeconds() throws {
+        let file = try XCTUnwrap(AudioFile(path: testFilePath))
+        let seconds = try XCTUnwrap(file.lengthInSeconds)
+        XCTAssertGreaterThan(seconds, 0, "test.mp3 is ~1s")
+    }
+
+    // MARK: - setProperties: empty-values branch
+
+    /// A key mapped to an empty array must record the key with zero values
+    /// (via `PropertyMapBuilder::ensureKey`) rather than being skipped or
+    /// crashing, and must not be treated as an unsupported/rejected key.
+    func testSetPropertiesWithEmptyValuesRecordsKeyWithoutCrashing() throws {
+        let path = try makeTempCopy()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let file = try XCTUnwrap(AudioFile(path: path))
+        let unsupported = file.setProperties([
+            "TITLE": ["A title"],
+            "COMMENT": []
+        ])
+        XCTAssertNil(unsupported["COMMENT"], "an empty-values key is accepted, not rejected")
+        try file.save()
+
+        let reopened = try XCTUnwrap(AudioFile(path: path))
+        XCTAssertEqual(reopened.properties["TITLE"], ["A title"])
+    }
+
+    // MARK: - pictures property setter
+
+    /// Exercises the `pictures` computed property's SETTER (`audioFile.pictures
+    /// = [...]`), not `setPictures(_:)` directly.
+    func testPicturesPropertySetter() throws {
+        let path = try makeTempCopy()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let imageData = Data(Self.pngBytes)
+        do {
+            let file = try XCTUnwrap(AudioFile(path: path))
+            file.pictures = [
+                Picture(data: imageData, mimeType: "image/png",
+                        description: "via setter", pictureType: .frontCover)
+            ]
+            try file.save()
+        }
+
+        let reopened = try XCTUnwrap(AudioFile(path: path))
+        let picture = try XCTUnwrap(reopened.pictures.first)
+        XCTAssertEqual(picture.data, imageData)
+        XCTAssertEqual(picture.description, "via setter")
     }
 }
