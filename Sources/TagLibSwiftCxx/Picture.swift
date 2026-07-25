@@ -35,6 +35,13 @@ public struct Picture: Equatable {
         case illustration = "Illustration"
         case bandLogo = "Band logo"
         case publisherLogo = "Publisher logo"
+
+        /// Map a raw `"pictureType"` string from TagLib to a case, falling back
+        /// to ``other`` for unknown/empty strings. Unknown types must NOT be
+        /// fabricated as ``frontCover`` — that would distort meaning on roundtrip.
+        static func from(rawValue: String) -> PictureType {
+            PictureType(rawValue: rawValue) ?? .other
+        }
     }
 
     /// Raw image bytes.
