@@ -35,9 +35,26 @@
 #include "taglib/tstringlist.h"
 #include "taglib/tpropertymap.h"
 #include "taglib/tbytevector.h"
+#include "taglib/tbytevectorstream.h"
+#include "taglib/tiostream.h"
 #include "taglib/tvariant.h"
+#include "taglib/tmap.h"
 #include "taglib/tlist.h"
 #include "taglib/audioproperties.h"
+
+// Concrete AudioProperties subclasses, dynamic_cast'd on the C++ side to surface
+// per-format extras (bitsPerSample, MPEG version/layer) the abstract base lacks.
+#include "taglib/flacproperties.h"
+#include "taglib/mpegproperties.h"
+#include "taglib/mpegheader.h"
+#include "taglib/wavproperties.h"
+#include "taglib/aiffproperties.h"
+#include "taglib/mp4properties.h"
+#include "taglib/apeproperties.h"
+#include "taglib/wavpackproperties.h"
+#include "taglib/trueaudioproperties.h"
+#include "taglib/dsfproperties.h"
+#include "taglib/dsdiffproperties.h"
 
 namespace TagLibInterop {
 
@@ -48,6 +65,78 @@ namespace TagLibInterop {
 // Construct a FileRef from a UTF-8 path (default read-style resolved in C++).
 inline TagLib::FileRef openFile(const char *path) {
     return TagLib::FileRef(path);
+}
+
+// ---------------------------------------------------------------------------
+// In-memory / IOStream I/O
+//
+// A ByteVectorStream that reports a synthetic name carrying the caller's file
+// extension (e.g. "memory.mp3"). ByteVectorStream::name() is empty, so
+// FileRef::parse() cannot detect the format by extension; overriding name()
+// restores extension-based detection (with content sniffing as fallback).
+// ---------------------------------------------------------------------------
+
+class NamedByteVectorStream : public TagLib::ByteVectorStream {
+public:
+    NamedByteVectorStream(const TagLib::ByteVector &data, std::string name)
+        : TagLib::ByteVectorStream(data), name_(std::move(name)) {}
+    // FileName is `const char *` on POSIX; the returned pointer stays valid for
+    // the lifetime of this object (it is the backing std::string's buffer).
+    TagLib::FileName name() const override { return name_.c_str(); }
+private:
+    std::string name_;
+};
+
+// Owns an in-memory audio file: the ByteVectorStream MUST outlive the FileRef
+// that points at it, so both live together in one heap object reached through an
+// opaque handle (void*). This is deliberately NOT modeled as a Swift/C++
+// reference type -- that would raise the deployment floor to iOS 16.4. Instead
+// the handle crosses as a plain pointer and every operation is a free function
+// returning values, preserving the iOS 13 / macOS 10.15 floor.
+struct MemoryFile {
+    NamedByteVectorStream stream;
+    TagLib::FileRef ref;
+
+    MemoryFile(const void *bytes, size_t len, const char *ext)
+        : stream(TagLib::ByteVector(static_cast<const char *>(bytes),
+                                    static_cast<unsigned int>(len)),
+                 std::string("memory.") + (ext ? ext : "")),
+          // FileRef does NOT take ownership of the stream (see fileref.h); this
+          // struct keeps it alive alongside the FileRef.
+          ref(&stream) {}
+};
+
+// Allocate a memory-backed file from a byte buffer + extension hint. Returns an
+// opaque handle (never null); the caller owns it and must closeMemory() it.
+inline void *openMemory(const void *bytes, size_t len, const char *ext) {
+    return new MemoryFile(bytes, len, ext);
+}
+
+// A COPY of the handle's FileRef (FileRef is implicitly shared: the copy shares
+// the same parsed File through a shared_ptr, so edits + save() on the copy land
+// on the same in-memory stream).
+inline TagLib::FileRef memoryFileRef(void *handle) {
+    return static_cast<MemoryFile *>(handle)->ref;
+}
+
+// Size, in bytes, of the handle's current in-memory data (call after save()).
+inline size_t memoryDataSize(void *handle) {
+    const TagLib::ByteVector *bv = static_cast<MemoryFile *>(handle)->stream.data();
+    return bv ? bv->size() : 0;
+}
+
+// Copy the handle's current in-memory bytes into a Swift-provided buffer of at
+// least memoryDataSize(handle) bytes.
+inline void memoryCopyData(void *handle, char *dest) {
+    const TagLib::ByteVector *bv = static_cast<MemoryFile *>(handle)->stream.data();
+    if (bv && bv->size() > 0) {
+        std::memcpy(dest, bv->data(), bv->size());
+    }
+}
+
+// Destroy a handle returned by openMemory().
+inline void closeMemory(void *handle) {
+    delete static_cast<MemoryFile *>(handle);
 }
 
 // Whether the underlying file was parsed successfully.
@@ -94,6 +183,42 @@ inline int sampleRate(const TagLib::FileRef &ref) {
 inline int channels(const TagLib::FileRef &ref) {
     const TagLib::AudioProperties *p = ref.audioProperties();
     return p ? p->channels() : -1;
+}
+
+// Extended, per-format extras the abstract AudioProperties base does not expose.
+// Each dynamic_cast's the concrete property object; -1 means "not applicable to
+// this format" (Swift maps that to nil).
+
+inline int bitsPerSample(const TagLib::FileRef &ref) {
+    const TagLib::AudioProperties *p = ref.audioProperties();
+    if (!p) return -1;
+    if (auto x = dynamic_cast<const TagLib::FLAC::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::RIFF::WAV::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::RIFF::AIFF::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::MP4::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::APE::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::WavPack::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::TrueAudio::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::DSF::Properties *>(p)) return x->bitsPerSample();
+    if (auto x = dynamic_cast<const TagLib::DSDIFF::Properties *>(p)) return x->bitsPerSample();
+    return -1; // MPEG, Vorbis, Opus, ... carry no bits-per-sample.
+}
+
+// MPEG version as the raw TagLib enum value (Version1=0, Version2=1,
+// Version2_5=2, Version4=3), or -1 for non-MPEG streams.
+inline int mpegVersion(const TagLib::FileRef &ref) {
+    const TagLib::AudioProperties *p = ref.audioProperties();
+    if (auto x = dynamic_cast<const TagLib::MPEG::Properties *>(p))
+        return static_cast<int>(x->version());
+    return -1;
+}
+
+// MPEG layer (1-3), or -1 for non-MPEG streams.
+inline int mpegLayer(const TagLib::FileRef &ref) {
+    const TagLib::AudioProperties *p = ref.audioProperties();
+    if (auto x = dynamic_cast<const TagLib::MPEG::Properties *>(p))
+        return x->layer();
+    return -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,107 +393,219 @@ inline PropertyMapAccess applyProperties(TagLib::FileRef &ref,
 }
 
 // ---------------------------------------------------------------------------
-// Cover art -- complex properties under the "PICTURE" key
-// (FileRef::complexProperties / setComplexProperties, a List<VariantMap>).
+// Generic complex properties
+// (FileRef::complexPropertyKeys / complexProperties / setComplexProperties --
+// each key maps to a List<VariantMap>, VariantMap = Map<String, Variant>).
 //
-// Same value-type crossing strategy as PropertyMap: PictureListAccess snapshots
-// the pictures once and flattens each VariantMap's "data" (ByteVector),
-// "mimeType", "description" and "pictureType" (String) fields into stable,
-// index-addressed accessors. Binary picture bytes are copied into std::string
-// buffers held by the access object, so the pointers returned by pictureData()
-// stay valid for the object's lifetime (a temporary ByteVector's data() would
-// dangle). Both helpers are concrete copyable value types (floor preserved).
+// Same value-type crossing strategy as PropertyMap: snapshot once on the C++
+// side and expose flat, index-addressed value accessors so Swift never imports
+// std::map/std::list iterators. Cover art ("PICTURE") is just one key layered on
+// top of this generic API in Swift.
 // ---------------------------------------------------------------------------
 
-class PictureListAccess {
+// A flattened, copyable snapshot of a StringList (used for complexPropertyKeys
+// and, internally, StringList-typed variant fields).
+class StringListAccess {
 public:
-    explicit PictureListAccess(const TagLib::FileRef &ref) {
-        if (ref.isNull()) return;
-        const TagLib::List<TagLib::VariantMap> pics =
-            ref.complexProperties("PICTURE");
-        for (auto it = pics.begin(); it != pics.end(); ++it) {
-            const TagLib::VariantMap &m = *it;
-            Entry e;
-            const TagLib::ByteVector bv = variantByteVector(m, "data");
-            e.data.assign(bv.data(), bv.size());
-            e.mimeType = variantString(m, "mimeType");
-            e.description = variantString(m, "description");
-            e.pictureType = variantString(m, "pictureType");
-            entries_.push_back(std::move(e));
+    explicit StringListAccess(const TagLib::StringList &list) {
+        for (auto it = list.begin(); it != list.end(); ++it) {
+            items_.push_back(it->to8Bit(true));
         }
     }
-
-    unsigned int count() const {
-        return static_cast<unsigned int>(entries_.size());
-    }
-
-    unsigned int pictureDataSize(unsigned int i) const {
-        return static_cast<unsigned int>(entries_[i].data.size());
-    }
-
-    // Copy picture i's raw bytes into a Swift-provided buffer of at least
-    // pictureDataSize(i) bytes. (Swift/C++ interop refuses to import a method
-    // that returns an interior pointer, so the crossing is a copy instead.)
-    void copyPictureData(unsigned int i, char *dest) const {
-        const std::string &d = entries_[i].data;
-        if (!d.empty()) {
-            std::memcpy(dest, d.data(), d.size());
-        }
-    }
-
-    std::string mimeType(unsigned int i) const { return entries_[i].mimeType; }
-    std::string description(unsigned int i) const { return entries_[i].description; }
-    std::string pictureType(unsigned int i) const { return entries_[i].pictureType; }
-
+    unsigned int count() const { return static_cast<unsigned int>(items_.size()); }
+    std::string at(unsigned int i) const { return items_[i]; }
 private:
-    struct Entry {
-        std::string data;
-        std::string mimeType;
-        std::string description;
-        std::string pictureType;
-    };
-
-    static TagLib::ByteVector variantByteVector(const TagLib::VariantMap &m,
-                                                const char *key) {
-        auto it = m.find(TagLib::String(key));
-        return it != m.end() ? it->second.toByteVector() : TagLib::ByteVector();
-    }
-
-    static std::string variantString(const TagLib::VariantMap &m,
-                                     const char *key) {
-        auto it = m.find(TagLib::String(key));
-        return it != m.end() ? it->second.toString().to8Bit(true) : std::string();
-    }
-
-    std::vector<Entry> entries_;
+    std::vector<std::string> items_;
 };
 
-// Accumulates a List<VariantMap> of pictures from Swift, one at a time. Apply
-// with the free function applyPictures() (free function for the same inout-
-// FileRef reason documented on applyProperties), then save() to persist.
-class PictureListBuilder {
+inline StringListAccess complexPropertyKeys(const TagLib::FileRef &ref) {
+    return ref.isNull() ? StringListAccess(TagLib::StringList())
+                        : StringListAccess(ref.complexPropertyKeys());
+}
+
+// Field type tags shared with the Swift ComplexValue enum. Keep in sync.
+enum ComplexFieldType {
+    ComplexFieldString = 0,
+    ComplexFieldInt = 1,
+    ComplexFieldBool = 2,
+    ComplexFieldData = 3,
+    ComplexFieldStringList = 4,
+    ComplexFieldUnsupported = 5,
+};
+
+// Snapshots one key's List<VariantMap>, eagerly decoding every field into a flat
+// per-map, per-field representation Swift can rebuild without touching C++
+// containers. Binary bytes are copied into std::string buffers so the pointers
+// handed back stay valid for this object's lifetime.
+class ComplexPropertyAccess {
 public:
-    void append(const char *data, unsigned int dataSize,
-                const char *mimeType, const char *description,
-                const char *pictureType) {
-        TagLib::VariantMap m;
-        m.insert("data", TagLib::Variant(TagLib::ByteVector(data, dataSize)));
-        m.insert("mimeType", TagLib::Variant(TagLib::String(mimeType, TagLib::String::UTF8)));
-        m.insert("description", TagLib::Variant(TagLib::String(description, TagLib::String::UTF8)));
-        m.insert("pictureType", TagLib::Variant(TagLib::String(pictureType, TagLib::String::UTF8)));
-        list_.append(m);
+    ComplexPropertyAccess(const TagLib::FileRef &ref, const char *key) {
+        if (ref.isNull()) return;
+        ingest(ref.complexProperties(key));
     }
 
+    // Snapshot an already-computed List<VariantMap> (used by the round-trip and
+    // unsupported-sample helpers below, and to exercise the crossing for variant
+    // types no format persists to disk).
+    explicit ComplexPropertyAccess(const TagLib::List<TagLib::VariantMap> &maps) {
+        ingest(maps);
+    }
+
+    unsigned int mapCount() const { return static_cast<unsigned int>(maps_.size()); }
+    unsigned int fieldCount(unsigned int m) const {
+        return static_cast<unsigned int>(maps_[m].size());
+    }
+    std::string fieldKey(unsigned int m, unsigned int f) const { return maps_[m][f].key; }
+    int fieldType(unsigned int m, unsigned int f) const { return maps_[m][f].type; }
+    std::string fieldString(unsigned int m, unsigned int f) const { return maps_[m][f].str; }
+    long long fieldInt(unsigned int m, unsigned int f) const { return maps_[m][f].i; }
+    bool fieldBool(unsigned int m, unsigned int f) const { return maps_[m][f].b; }
+    unsigned int fieldDataSize(unsigned int m, unsigned int f) const {
+        return static_cast<unsigned int>(maps_[m][f].data.size());
+    }
+    void fieldCopyData(unsigned int m, unsigned int f, char *dest) const {
+        const std::string &d = maps_[m][f].data;
+        if (!d.empty()) std::memcpy(dest, d.data(), d.size());
+    }
+    unsigned int fieldListCount(unsigned int m, unsigned int f) const {
+        return static_cast<unsigned int>(maps_[m][f].list.size());
+    }
+    std::string fieldListValue(unsigned int m, unsigned int f, unsigned int i) const {
+        return maps_[m][f].list[i];
+    }
+
+private:
+    struct Field {
+        std::string key;
+        int type = ComplexFieldUnsupported;
+        std::string str;
+        long long i = 0;
+        bool b = false;
+        std::string data;
+        std::vector<std::string> list;
+    };
+
+    void ingest(const TagLib::List<TagLib::VariantMap> &maps) {
+        for (auto mi = maps.begin(); mi != maps.end(); ++mi) {
+            std::vector<Field> fields;
+            const TagLib::VariantMap &m = *mi;
+            for (auto fi = m.begin(); fi != m.end(); ++fi) {
+                Field field;
+                field.key = fi->first.to8Bit(true);
+                const TagLib::Variant &v = fi->second;
+                switch (v.type()) {
+                case TagLib::Variant::String:
+                    field.type = ComplexFieldString;
+                    field.str = v.toString().to8Bit(true);
+                    break;
+                case TagLib::Variant::Bool:
+                    field.type = ComplexFieldBool;
+                    field.b = v.toBool();
+                    break;
+                case TagLib::Variant::Int:
+                case TagLib::Variant::UInt:
+                case TagLib::Variant::LongLong:
+                case TagLib::Variant::ULongLong:
+                    field.type = ComplexFieldInt;
+                    field.i = v.toLongLong();
+                    break;
+                case TagLib::Variant::ByteVector: {
+                    field.type = ComplexFieldData;
+                    const TagLib::ByteVector bv = v.toByteVector();
+                    field.data.assign(bv.data(), bv.size());
+                    break;
+                }
+                case TagLib::Variant::StringList: {
+                    field.type = ComplexFieldStringList;
+                    const TagLib::StringList sl = v.toStringList();
+                    for (auto si = sl.begin(); si != sl.end(); ++si)
+                        field.list.push_back(si->to8Bit(true));
+                    break;
+                }
+                default:
+                    // Double, ByteVectorList, Map, Void: not modeled by
+                    // ComplexValue -> surfaced as .unsupported.
+                    field.type = ComplexFieldUnsupported;
+                    break;
+                }
+                fields.push_back(std::move(field));
+            }
+            maps_.push_back(std::move(fields));
+        }
+    }
+
+    std::vector<std::vector<Field>> maps_;
+};
+
+// Accumulates a List<VariantMap> from Swift. Call startMap() before each map,
+// then the typed setters; finish() flushes the last map. StringList fields are
+// assembled across repeated addStringListItem() calls, then merged on flush.
+class ComplexPropertyBuilder {
+public:
+    void startMap() { flush(); haveCur_ = true; }
+    void setString(const char *key, const char *val) {
+        cur_.insert(TagLib::String(key, TagLib::String::UTF8),
+                    TagLib::Variant(TagLib::String(val, TagLib::String::UTF8)));
+    }
+    void setInt(const char *key, long long val) {
+        cur_.insert(TagLib::String(key, TagLib::String::UTF8), TagLib::Variant(val));
+    }
+    void setBool(const char *key, bool val) {
+        cur_.insert(TagLib::String(key, TagLib::String::UTF8), TagLib::Variant(val));
+    }
+    void setData(const char *key, const char *bytes, unsigned int len) {
+        cur_.insert(TagLib::String(key, TagLib::String::UTF8),
+                    TagLib::Variant(TagLib::ByteVector(bytes, len)));
+    }
+    void addStringListItem(const char *key, const char *val) {
+        lists_[TagLib::String(key, TagLib::String::UTF8)]
+            .append(TagLib::String(val, TagLib::String::UTF8));
+    }
+    void finish() { flush(); }
     const TagLib::List<TagLib::VariantMap> &list() const { return list_; }
 
 private:
+    void flush() {
+        if (!haveCur_) return;
+        for (auto it = lists_.begin(); it != lists_.end(); ++it)
+            cur_.insert(it->first, TagLib::Variant(it->second));
+        list_.append(cur_);
+        cur_ = TagLib::VariantMap();
+        lists_ = TagLib::Map<TagLib::String, TagLib::StringList>();
+        haveCur_ = false;
+    }
+
+    TagLib::VariantMap cur_;
+    TagLib::Map<TagLib::String, TagLib::StringList> lists_;
     TagLib::List<TagLib::VariantMap> list_;
+    bool haveCur_ = false;
 };
 
-// Apply a builder's picture list to a file (free function -- see applyProperties).
-inline bool applyPictures(TagLib::FileRef &ref, const PictureListBuilder &builder) {
+// Apply a builder's list to a file under `key` (free function -- see
+// applyProperties for the inout-FileRef rationale), then save() to persist.
+inline bool applyComplexProperties(TagLib::FileRef &ref, const char *key,
+                                   const ComplexPropertyBuilder &builder) {
     if (ref.isNull()) return false;
-    return ref.setComplexProperties("PICTURE", builder.list());
+    return ref.setComplexProperties(key, builder.list());
+}
+
+// Round-trip a builder's list straight back through ComplexPropertyAccess with
+// no file involved. Exercises the full value-type crossing for every variant
+// type ComplexValue maps -- including int/bool/StringList, which no format
+// actually persists via complex properties.
+inline ComplexPropertyAccess
+complexPropertiesRoundtrip(const ComplexPropertyBuilder &builder) {
+    return ComplexPropertyAccess(builder.list());
+}
+
+// A one-field sample whose value is a Double -- a Variant type ComplexValue does
+// not model -- so it decodes as .unsupported. Exists to verify that path.
+inline ComplexPropertyAccess complexPropertyUnsupportedSample() {
+    TagLib::VariantMap m;
+    m.insert(TagLib::String("dbl"), TagLib::Variant(3.5));
+    TagLib::List<TagLib::VariantMap> maps;
+    maps.append(m);
+    return ComplexPropertyAccess(maps);
 }
 
 } // namespace TagLibInterop
