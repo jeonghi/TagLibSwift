@@ -36,8 +36,23 @@ install/
 .AppleDouble
 .LSOverride
 
+### Example app ###
+# The demo app ships a committed, standalone-openable generated Xcode project.
+!Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj
+!Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/**
+# ...but never the per-user bits (any xcuserdata, incl. the nested workspace one).
+Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/**/xcuserdata/
+Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj/xcuserdata/
+Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcworkspace/
+
 ### Test Resources ###
 Tests/TagLibSwiftTests/Resources/*.mp3
 !Tests/TagLibSwiftTests/Resources/create_test_mp3.sh
+# Multi-format fixtures are generated at test time (or via
+# create_test_fixtures.sh); only the generator scripts are tracked.
+Tests/TagLibSwiftTests/Resources/*.flac
+Tests/TagLibSwiftTests/Resources/*.m4a
+Tests/TagLibSwiftTests/Resources/*.ogg
+!Tests/TagLibSwiftTests/Resources/create_test_fixtures.sh
 
 # End of https://www.toptal.com/developers/gitignore/api/swiftpm,xcode
