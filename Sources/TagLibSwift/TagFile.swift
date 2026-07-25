@@ -1,5 +1,5 @@
 import Foundation
-import TagLibCBridge
+import CTagLib
 
 public class TagFile {
     private var file: OpaquePointer?
