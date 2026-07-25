@@ -2,14 +2,21 @@ import CTagLibCore
 import CxxStdlib
 import Foundation
 
+/// A format-independent map of text tags, mirroring `TagLib::PropertyMap`:
+/// each key (`TITLE`, `ARTIST`, `ALBUMARTIST`, `COMPOSER`, `DISCNUMBER`, `BPM`,
+/// …) maps to an ordered list of string values.
+public typealias PropertyMap = [String: [String]]
+
 /// Errors thrown by ``AudioFile``.
 public enum AudioFileError: Error, Equatable {
     /// Persisting tag changes to disk failed.
     case saveFailed
 }
 
-/// A high-level, ergonomic handle to an audio file's metadata, layered over
-/// TagLib's C++ API via Swift/C++ interop.
+/// A handle to an audio file's metadata, layered over TagLib's C++ API via
+/// Swift/C++ interop. Mirrors the shape of `TagLib::FileRef`: open a path, then
+/// reach ``tag``, ``audioProperties``, ``properties``, and ``pictures``, and
+/// persist edits with ``save()``.
 ///
 /// `AudioFile` wraps a `TagLib::FileRef`. `FileRef` is copyable and shares the
 /// underlying parsed file through a `shared_ptr`, so mutating a tag and then
@@ -25,7 +32,7 @@ public final class AudioFile {
     /// callers can reach format-specific classes (ID3v2 frames, etc.) through it.
     /// Mutating it directly bypasses `AudioFile`'s conveniences; prefer the typed
     /// accessors below for anything they cover.
-    public private(set) var fileRef: TagLib.FileRef
+    public internal(set) var fileRef: TagLib.FileRef
 
     /// Open the file at `path`. Returns `nil` if TagLib could not parse it.
     public init?(path: String) {
@@ -39,6 +46,13 @@ public final class AudioFile {
         TagLibInterop.isValid(fileRef)
     }
 
+    /// Whether the wrapped `FileRef` is null (no file). Mirrors
+    /// `TagLib::FileRef::isNull`. Always `false` for a live `AudioFile`, since
+    /// ``init(path:)`` returns `nil` on a null ref.
+    public var isNull: Bool {
+        fileRef.isNull()
+    }
+
     /// Persist pending tag changes to disk.
     /// - Throws: ``AudioFileError/saveFailed`` if TagLib reported a write failure.
     public func save() throws {
@@ -47,62 +61,27 @@ public final class AudioFile {
         }
     }
 
-    // MARK: - Base tag (get/set)
+    // MARK: - Base tag
 
-    public var title: String {
-        get { String(TagLibInterop.title(fileRef)) }
-        set { newValue.withCString { TagLibInterop.setTitle(&fileRef, $0) } }
-    }
-
-    public var artist: String {
-        get { String(TagLibInterop.artist(fileRef)) }
-        set { newValue.withCString { TagLibInterop.setArtist(&fileRef, $0) } }
-    }
-
-    public var album: String {
-        get { String(TagLibInterop.album(fileRef)) }
-        set { newValue.withCString { TagLibInterop.setAlbum(&fileRef, $0) } }
-    }
-
-    public var comment: String {
-        get { String(TagLibInterop.comment(fileRef)) }
-        set { newValue.withCString { TagLibInterop.setComment(&fileRef, $0) } }
-    }
-
-    public var genre: String {
-        get { String(TagLibInterop.genre(fileRef)) }
-        set { newValue.withCString { TagLibInterop.setGenre(&fileRef, $0) } }
-    }
-
-    public var year: UInt {
-        get { UInt(TagLibInterop.year(fileRef)) }
-        set { TagLibInterop.setYear(&fileRef, UInt32(newValue)) }
-    }
-
-    public var track: UInt {
-        get { UInt(TagLibInterop.track(fileRef)) }
-        set { TagLibInterop.setTrack(&fileRef, UInt32(newValue)) }
+    /// The common text/number fields (title, artist, album, comment, genre,
+    /// year, track) as a live, settable view. Mirrors `FileRef::tag()`.
+    public var tag: Tag {
+        Tag(file: self)
     }
 
     // MARK: - Audio properties (read-only)
 
-    /// Length in whole seconds, or `nil` if unavailable.
-    public var lengthInSeconds: Int? { nonNegative(TagLibInterop.lengthInSeconds(fileRef)) }
-
-    /// Length in milliseconds, or `nil` if unavailable.
-    public var lengthInMilliseconds: Int? { nonNegative(TagLibInterop.lengthInMilliseconds(fileRef)) }
-
-    /// Bitrate in kbps, or `nil` if unavailable.
-    public var bitrate: Int? { nonNegative(TagLibInterop.bitrate(fileRef)) }
-
-    /// Sample rate in Hz, or `nil` if unavailable.
-    public var sampleRate: Int? { nonNegative(TagLibInterop.sampleRate(fileRef)) }
-
-    /// Channel count, or `nil` if unavailable.
-    public var channels: Int? { nonNegative(TagLibInterop.channels(fileRef)) }
-
-    private func nonNegative(_ value: Int32) -> Int? {
-        value < 0 ? nil : Int(value)
+    /// Read-only audio characteristics, or `nil` if the file exposes none.
+    /// Mirrors `FileRef::audioProperties()`.
+    public var audioProperties: AudioProperties? {
+        guard TagLibInterop.hasAudioProperties(fileRef) else { return nil }
+        return AudioProperties(
+            lengthInSeconds: Int(TagLibInterop.lengthInSeconds(fileRef)),
+            lengthInMilliseconds: Int(TagLibInterop.lengthInMilliseconds(fileRef)),
+            bitrate: Int(TagLibInterop.bitrate(fileRef)),
+            sampleRate: Int(TagLibInterop.sampleRate(fileRef)),
+            channels: Int(TagLibInterop.channels(fileRef))
+        )
     }
 
     // MARK: - PropertyMap (the universal all-text-tags interface)
@@ -114,10 +93,10 @@ public final class AudioFile {
     /// tag's properties wholesale via `Tag::setProperties`; call ``save()`` to
     /// persist. Keys are format-independent (`ALBUMARTIST`, `COMPOSER`,
     /// `DISCNUMBER`, `BPM`, ...).
-    public var properties: [String: [String]] {
+    public var properties: PropertyMap {
         get {
             let access = TagLibInterop.PropertyMapAccess(fileRef)
-            var result: [String: [String]] = [:]
+            var result: PropertyMap = [:]
             let keyCount = access.keyCount()
             var i: UInt32 = 0
             while i < keyCount {
@@ -145,7 +124,7 @@ public final class AudioFile {
     ///   accepted. TagLib's `setProperties` reports these so a partial write is
     ///   not silent data loss; inspect the result if you need to know.
     @discardableResult
-    public func setProperties(_ props: [String: [String]]) -> [String: [String]] {
+    public func setProperties(_ props: PropertyMap) -> PropertyMap {
         var builder = TagLibInterop.PropertyMapBuilder()
         for (key, values) in props {
             if values.isEmpty {
@@ -167,7 +146,7 @@ public final class AudioFile {
         // applyProperties returns the unsupported/rejected PropertyMap as a flat,
         // value-type snapshot (same crossing as reads); rebuild it here.
         let unsupported = TagLibInterop.applyProperties(&fileRef, builder)
-        var result: [String: [String]] = [:]
+        var result: PropertyMap = [:]
         let keyCount = unsupported.keyCount()
         var i: UInt32 = 0
         while i < keyCount {
