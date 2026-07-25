@@ -4,4 +4,4 @@
 [submodule "taglib"]
 	path = taglib
 	url = https://github.com/taglib/taglib.git
-	branch = v2.0.2
+	branch = v2.3.1
