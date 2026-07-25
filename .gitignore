@@ -39,5 +39,11 @@ install/
 ### Test Resources ###
 Tests/TagLibSwiftTests/Resources/*.mp3
 !Tests/TagLibSwiftTests/Resources/create_test_mp3.sh
+# TagLibSwiftCxx multi-format fixtures are generated at test time (or via
+# create_test_fixtures.sh); only the generator scripts are tracked.
+Tests/TagLibSwiftCxxTests/Resources/*.flac
+Tests/TagLibSwiftCxxTests/Resources/*.m4a
+Tests/TagLibSwiftCxxTests/Resources/*.ogg
+!Tests/TagLibSwiftCxxTests/Resources/create_test_fixtures.sh
 
 # End of https://www.toptal.com/developers/gitignore/api/swiftpm,xcode
