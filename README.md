@@ -117,6 +117,37 @@ When the typed API doesn't cover a format-specific need (e.g. individual ID3v2 f
 let ref = file.fileRef   // TagLib.FileRef — use TagLib's C++ API directly
 ```
 
+## Feature coverage
+
+How far the Swift surface covers TagLib. Because the whole library is compiled in
+and reachable through `file.fileRef`, **everything TagLib can do is accessible** —
+the checklist distinguishes what's wrapped in an idiomatic Swift API from what you
+reach through the raw escape hatch.
+
+**Legend:** ✅ high-level Swift API · 🔶 reachable via raw `file.fileRef` (C++ interop), not pre-wrapped · ❌ not available
+
+| TagLib capability | Status | Swift API |
+|---|:--:|---|
+| **Basic tags** — title, artist, album, comment, genre, year, track | ✅ | `file.tag` |
+| **Universal text tags** — PropertyMap (`ALBUMARTIST`, `COMPOSER`, `DISCNUMBER`, `BPM`, `LYRICS`, …, any key) | ✅ | `file.properties` / `setProperties(_:)` |
+| **Rejected-key reporting** on write | ✅ | `setProperties(_:)` return value |
+| **Cover art / pictures** — complex `PICTURE` property | ✅ | `file.pictures` / `setPictures(_:)` |
+| **Audio properties** — length, bitrate, sample rate, channels | ✅ | `file.audioProperties` |
+| **Save to disk** | ✅ | `try file.save()` |
+| **File validity** — isNull / isValid | ✅ | `file.isValid` / `file.isNull` |
+| **All TagLib file formats** (auto-detected) — the API above works on every [supported format](#supported-formats) | ✅ | `AudioFile(path:)` |
+| **Extended per-format audio props** — `bitsPerSample`, MPEG version/layer/channel-mode, MP4 codec, … | 🔶 | `file.fileRef` |
+| **Format-specific tag classes** — ID3v2 frames (chapters, USLT lyrics, POPM rating, TXXX…), MP4 atoms, Xiph comments, APE items, ASF attributes | 🔶 | `file.fileRef` |
+| **Other complex properties** (e.g. `GENERALOBJECT`) | 🔶 | `file.fileRef` |
+| **Per-version tag strip/remove** (ID3v1 vs ID3v2, etc.) | 🔶 | `file.fileRef` |
+| **In-memory / IOStream / ByteVector I/O** (no file path) | ❌ | — |
+
+The high-level API fully covers TagLib's **portable metadata model** (base tags,
+the universal PropertyMap that spans every text tag, audio properties, and cover
+art) across all formats. Format-specific classes and in-memory streams are the
+current gaps in the idiomatic layer; the first is reachable via `file.fileRef`,
+the second is not yet exposed.
+
 ## Example app
 
 A multiplatform (iOS + macOS) SwiftUI demo lives in [`Examples/TagLibSwiftDemo/`](Examples/TagLibSwiftDemo/). Open `Examples/TagLibSwiftDemo/TagLibSwiftDemo.xcodeproj` in Xcode and run — it exercises the full API: opening an `AudioFile`, editing `tag.*`, reading `audioProperties`, editing the `PropertyMap` (showing rejected keys on save), viewing/setting cover art (`pictures` / `setPictures`), and `save()`. It ships a tiny tagged sample MP3 that it copies to a writable temp location before opening (the bundle is read-only), plus a `.fileImporter` to open other files.
